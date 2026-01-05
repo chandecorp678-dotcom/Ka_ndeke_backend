@@ -2,9 +2,9 @@ const express = require('express');
 const path = require('path');
 const router = express.Router();
 
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'change-this-admin-token'; // set a strong value in Render env
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'change-this-admin-token';
 
-// simple middleware to require admin token in header "x-admin-token"
+// middleware: require admin token in header "x-admin-token"
 function requireAdmin(req, res, next) {
   const t = req.get('x-admin-token') || '';
   if (!t || t !== ADMIN_TOKEN) {
@@ -39,4 +39,3 @@ router.get('/export-db', requireAdmin, (req, res) => {
 });
 
 module.exports = router;
-

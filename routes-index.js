@@ -10,5 +10,14 @@ router.get("/health", (req, res) => {
 
 router.use("/", users); // mount auth & user endpoints under /api/*
 
-module.exports = router;
+// mount admin routes (add this)
+let admin;
+try {
+  admin = require("./admin");
+  router.use("/admin", admin);
+} catch (e) {
+  // admin.js not present — continue without admin endpoints
+  console.warn("admin.js not loaded (file may be missing). Admin endpoints unavailable.");
+}
 
+module.exports = router;

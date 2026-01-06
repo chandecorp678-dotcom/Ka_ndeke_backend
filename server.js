@@ -3,7 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 
-const { initDb } = require("./db");
+const { initDb, pool } = require("./db");
 const routes = require("./routes");
 
 const app = express();
@@ -22,8 +22,8 @@ app.use(express.static(path.join(__dirname, "public")));
 
 (async () => {
   try {
-    const db = await initDb();
-    app.locals.db = db;
+    await initDb();               // just test connection
+    app.locals.db = pool;         // attach Postgres pool
 
     // mount API routes under /api
     app.use("/api", routes);
@@ -35,6 +35,8 @@ app.use(express.static(path.join(__dirname, "public")));
   } catch (err) {
     console.error("Failed to start server:", err);
     process.exit(1);
+  }
+})();    process.exit(1);
   }
 })();
 

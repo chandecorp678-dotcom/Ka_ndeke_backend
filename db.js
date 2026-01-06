@@ -1,40 +1,20 @@
-const sqlite3 = require("sqlite3");
-const { open } = require("sqlite");
-const path = require("path");
-const fs = require("fs");
+const { Pool } = require("pg");
 
-const PG_URL = process.env.DATABASE_URL || '';
-const SQLITE_PATH = path.join(__dirname, "db", "ka-ndeke.db");
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === "production"
+    ? { rejectUnauthorized: false }
+    : false,
+});
 
-// Helper: ensure local db folder exists (for sqlite)
-function ensureSqliteDir() {
-  const dir = path.dirname(SQLITE_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+async function initDb() {
+  // Just test connection
+  await pool.query("SELECT 1");
+  console.log("✅ Connected to Postgres");
+  return pool;
 }
 
-// Create the users table SQL (works for both sqlite and postgres - uses compatible types)
-const USERS_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
-  username TEXT,
-  phone TEXT UNIQUE,
-  password_hash TEXT,
-  balance REAL DEFAULT 0,
-  freeRounds INTEGER DEFAULT 0,
-  createdAt TEXT,
-  updatedAt TEXT
-);
-`;
-
-async function initSqlite() {
-  ensureSqliteDir();
-
-  const db = await open({
-    filename: SQLITE_PATH,
-    driver: sqlite3.Database,
-  });
-
-  await db.exec("PRAGMA foreign_keys = ON;");
+module.exports = { pool, initDb };  await db.exec("PRAGMA foreign_keys = ON;");
   // create or migrate users table (existing logic kept simple)
   await db.exec(USERS_TABLE_SQL);
 

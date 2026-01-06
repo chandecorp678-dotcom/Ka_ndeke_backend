@@ -22,8 +22,8 @@ app.use(express.static(path.join(__dirname, "public")));
 
 (async () => {
   try {
-    await initDb();               // just test connection
-    app.locals.db = pool;         // attach Postgres pool
+    await initDb();       // test Postgres connection
+    app.locals.db = pool; // attach Postgres pool to app
 
     // mount API routes under /api
     app.use("/api", routes);
@@ -34,9 +34,6 @@ app.use(express.static(path.join(__dirname, "public")));
     });
   } catch (err) {
     console.error("Failed to start server:", err);
-    process.exit(1);
-  }
-})();    process.exit(1);
+    process.exit(1);      // <-- only here, inside catch
   }
 })();
-

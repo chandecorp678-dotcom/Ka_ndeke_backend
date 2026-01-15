@@ -344,71 +344,57 @@ function useGuest() {
 
 /* WALLET */
 async function deposit() {
+  if (!user || user.guest) return alert("You must be logged in to deposit");
   const amt = prompt("Enter deposit amount");
-  if(!amt || isNaN(amt) || amt <= 0) return alert("Invalid amount");
-  const amount = Number(amt);
+  if (!amt || isNaN(amt) || amt <= 0) return alert("Invalid amount");
 
-  if(user.guest) {
-    balance += amount;
-    localStorage.setItem("guest_balance", balance);
+  try {
+    const token = localStorage.getItem("token");
+    const res = await fetch(API + "/users/deposit", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token
+      },
+      body: JSON.stringify({ amount: Number(amt) })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Deposit failed");
+
+    balance = data.balance;
     updateUI();
-  } else {
-    // Send to backend for logged-in user
-    try {
-      const token = user.token; // make sure your login function stores token in user.token
-      const res = await fetch(API + "/users/deposit", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + token
-        },
-        body: JSON.stringify({ amount })
-      });
-      const data = await res.json();
-      if(!res.ok) throw new Error(data.error || "Deposit failed");
-
-      balance = data.balance;
-      updateUI();
-      alert("Deposit successful! New balance: ZMW " + balance.toFixed(2));
-    } catch(err) {
-      alert(err.message);
-    }
+    alert("Deposit successful!");
+  } catch (err) {
+    alert(err.message);
   }
 }
 
 async function withdraw() {
+  if (!user || user.guest) return alert("You must be logged in to withdraw");
   const amt = prompt("Enter withdraw amount");
-  if(!amt || isNaN(amt) || amt <= 0) return alert("Invalid amount");
-  const amount = Number(amt);
-  if(amount > balance) return alert("Insufficient balance");
+  if (!amt || isNaN(amt) || amt <= 0) return alert("Invalid amount");
 
-  if(user.guest) {
-    balance -= amount;
-    localStorage.setItem("guest_balance", balance);
+  try {
+    const token = localStorage.getItem("token");
+    const res = await fetch(API + "/users/withdraw", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token
+      },
+      body: JSON.stringify({ amount: Number(amt) })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Withdraw failed");
+
+    balance = data.balance;
     updateUI();
-  } else {
-    try {
-      const token = user.token; // make sure your login function stores token in user.token
-      const res = await fetch(API + "/users/withdraw", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + token
-        },
-        body: JSON.stringify({ amount })
-      });
-      const data = await res.json();
-      if(!res.ok) throw new Error(data.error || "Withdraw failed");
-
-      balance = data.balance;
-      updateUI();
-      alert("Withdraw successful! New balance: ZMW " + balance.toFixed(2));
-    } catch(err) {
-      alert(err.message);
-    }
+    alert("Withdraw successful!");
+  } catch (err) {
+    alert(err.message);
   }
 }
 </script>
 
 </body>
-  </html> 
+  </html>

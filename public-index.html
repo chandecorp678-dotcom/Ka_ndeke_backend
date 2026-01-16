@@ -347,23 +347,73 @@ function useGuest() {
 }  
   
 /* WALLET */  
-function deposit() {  
-  const amt = prompt("Enter deposit amount");  
-  if(!amt || isNaN(amt) || amt <= 0) return alert("Invalid amount");  
-  balance += Number(amt);  
-  if(user.guest) localStorage.setItem("guest_balance", balance);  
-  updateUI();  
+async function deposit() {
+  const amt = prompt("Enter deposit amount");
+  if (!amt || isNaN(amt) || amt <= 0) return alert("Invalid amount");
+
+  // 🟡 GUEST MODE → local only
+  if (user.guest) {
+    balance += Number(amt);
+    localStorage.setItem("guest_balance", balance);
+    updateUI();
+    return;
+  }
+
+  // 🔵 LOGGED-IN USER → backend
+  const res = await fetch(API + "/wallet/deposit", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + localStorage.getItem("token")
+    },
+    body: JSON.stringify({ amount: Number(amt) })
+  });
+
+  const data = await res.json();
+  if (!res.ok) return alert(data.error || "Deposit failed");
+
+  balance = Number(
+  data.balance ??
+  data.user?.balance ??
+  balance
+);
+  updateUI();
 }  
   
-function withdraw() {  
-  const amt = prompt("Enter withdraw amount");  
-  if(!amt || isNaN(amt) || amt <= 0) return alert("Invalid amount");  
-  if(amt > balance) return alert("Insufficient balance");  
-  balance -= Number(amt);  
-  if(user.guest) localStorage.setItem("guest_balance", balance);  
-  updateUI();  
+async function withdraw() {
+  const amt = prompt("Enter withdraw amount");
+  if (!amt || isNaN(amt) || amt <= 0) return alert("Invalid amount");
+
+  // 🟡 GUEST MODE
+  if (user.guest) {
+    if (amt > balance) return alert("Insufficient balance");
+    balance -= Number(amt);
+    localStorage.setItem("guest_balance", balance);
+    updateUI();
+    return;
+  }
+
+  // 🔵 LOGGED-IN USER
+  const res = await fetch(API + "/wallet/withdraw", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + localStorage.getItem("token")
+    },
+    body: JSON.stringify({ amount: Number(amt) })
+  });
+
+  const data = await res.json();
+  if (!res.ok) return alert(data.error || "Withdraw failed");
+
+  balance = Number(
+  data.balance ??
+  data.user?.balance ??
+  balance
+);
+  updateUI();
 }  
 </script>  
   
 </body>  
-    </html>
+      </html> 

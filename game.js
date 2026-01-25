@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 
-const { startRound, cashOut } = require("../gameEngine");
+const { startRound, cashOut } = require("./gameEngine");
 
 // START ROUND
 router.post("/start", (req, res) => {

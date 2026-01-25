@@ -24,4 +24,4 @@ try {
 const game = require("./game");
 router.use("/game", game);
 
-module.exports = router; 
+module.exports = router;

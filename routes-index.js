@@ -72,5 +72,6 @@ try {
   // admin.js not present — continue without admin endpoints
   console.warn("admin.js not loaded (file may be missing). Admin endpoints unavailable.");
 }
-
+const game = require("./game");
+router.use("/game", game);
 module.exports = router;

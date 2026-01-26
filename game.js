@@ -61,16 +61,23 @@ router.post("/cashout", async (req, res) => {
   try {
     // 🔐 Game-level lock already handled in gameEngine
     const result = cashOut(
-      roundId,
-      betAmount,
-      multiplier,
-      userId
-    );
+  roundId,
+  betAmount,
+  multiplier,
+  userId
+);
 
-    return res.json({
-      success: true,
-      ...result
-    });
+// 🔐 CREDIT WALLET ONLY ON WIN
+if (result.win) {
+  const currentBalance = getBalance(userId);
+  setBalance(userId, currentBalance + result.payout);
+}
+
+return res.json({
+  success: true,
+  ...result,
+  balance: getBalance(userId)
+});
 
   } catch (err) {
     return res.status(400).json({

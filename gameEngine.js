@@ -48,20 +48,29 @@ function startRound() {
  * Attempt to cash out a round.
  * Backend decides if the player won or lost.
  */
-function cashOut(roundId, betAmount, cashoutMultiplier) {
+function cashOut(roundId, betAmount, cashoutMultiplier, playerId) {
+  if (!round.playerId) {
+  round.playerId = playerId;
+}
+
+if (round.playerId !== playerId) {
+  throw new Error('Unauthorized cashout');
+}
   const round = rounds.get(roundId);
   if (!round) {
     throw new Error('Invalid round');
   }
 
-  if (round.status !== 'running') {
-    throw new Error('Round already ended');
-  }
+  // 🔐 WALLET LOCK: block double payouts
+if (round.locked) {
+  throw new Error('Wallet already settled');
+}
 
   // If player cashes out AFTER crash → loss
   if (cashoutMultiplier >= round.crashPoint) {
     round.status = 'crashed';
-    round.endedAt = Date.now();
+round.locked = true;     // 🔐 ADD
+round.endedAt = Date.now();
     return { win: false, payout: 0 };
   }
 
@@ -69,8 +78,8 @@ function cashOut(roundId, betAmount, cashoutMultiplier) {
   const payout = computePayout(betAmount, cashoutMultiplier);
 
   round.status = 'cashed_out';
-  round.endedAt = Date.now();
-
+round.locked = true;     // 🔐 ADD
+round.endedAt = Date.now();
   return {
     win: true,
     payout

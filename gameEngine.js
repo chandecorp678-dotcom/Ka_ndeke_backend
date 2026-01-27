@@ -6,7 +6,10 @@ const crypto = require('crypto');
  * Later this moves to DB or Redis.
  */
 const rounds = new Map();
-
+function crashDelayFromPoint(crashPoint) {
+  // Converts multiplier into milliseconds (server-only)
+  return Math.floor((crashPoint - 1) * 1000);
+}
 /**
  * Create a new game round.
  * The crash point is generated and KEPT SERVER-SIDE.
@@ -30,29 +33,29 @@ function startRound() {
     locked: false,
     playerId: null,
     startedAt: Date.now(),
-    endedAt: null,
-    timer: null
+    endedAt: null
   };
 
-  // ⏱️ AUTO-CRASH TIMER
-  const crashDelayMs = Math.floor((crashPoint - 1) * 1000);
+  rounds.set(roundId, round);
 
-  round.timer = setTimeout(() => {
-    if (!round.locked) {
+  // ⏱️ AUTO-CRASH TIMER (SERVER SIDE)
+  const delay = crashDelayFromPoint(crashPoint);
+
+  setTimeout(() => {
+    if (round.status === 'running') {
       round.status = 'crashed';
       round.locked = true;
       round.endedAt = Date.now();
     }
-  }, crashDelayMs);
+  }, delay);
 
-  rounds.set(roundId, round);
-
+  // IMPORTANT: never return crashPoint
   return {
     roundId,
     serverSeedHash,
     startedAt: round.startedAt
   };
-}
+    }
 
 /**
  * Attempt to cash out a round.

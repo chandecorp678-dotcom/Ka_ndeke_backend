@@ -106,7 +106,17 @@ function cashOut(roundId, betAmount, cashoutMultiplier, playerId) {
     payout
   };
 }
+function getRoundStatus(roundId) {
+  const round = rounds.get(roundId);
 
+  if (!round) {
+    return { status: 'invalid' };
+  }
+
+  return {
+    status: round.status
+  };
+}
 /**
  * Internal crash generator (loss-biased).
  */
@@ -130,5 +140,6 @@ function computePayout(betAmount, multiplier) {
 
 module.exports = {
   startRound,
-  cashOut
+  cashOut,
+  getRoundStatus
 };

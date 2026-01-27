@@ -200,14 +200,16 @@ updateUI();
 async function startGame() {
   if (running) return;
 
-  const betAmountEl = document.getElementById("betAmount");
-  const bet = Number(betAmountEl.value);
-  if (bet > balance) return alert("Insufficient balance");
+  const bet = Number(document.getElementById("betAmount").value);
 
-  // call backend
+  if (!bet || isNaN(bet) || bet <= 0) {
+    return alert("Invalid bet amount");
+  }
+
   const res = await fetch(API + "/game/start", {
     method: "POST",
-    headers: { "Content-Type": "application/json" }
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ betAmount: bet })
   });
 
   const data = await res.json();
@@ -216,9 +218,7 @@ async function startGame() {
     return alert(data.error || "Failed to start round");
   }
 
-  // 🔑 SAVE ROUND ID
   currentRoundId = data.roundId;
-
   currentBet = bet;
   balance -= bet;
   updateUI();
@@ -472,4 +472,4 @@ async function withdraw() {
 </script>
 
 </body>
-      </html>
+  </html>

@@ -49,6 +49,16 @@ router.post("/start", (req, res) => {
     return res.status(400).json({ error: err.message });
   }
 });
+// CHECK ROUND STATUS
+router.get("/status/:roundId", (req, res) => {
+  try {
+    const { roundId } = req.params;
+    const status = getRoundStatus(roundId);
+    res.json(status);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 // CASH OUT
 router.post("/cashout", async (req, res) => {
   const { roundId, betAmount, multiplier } = req.body;
@@ -78,7 +88,16 @@ return res.json({
   ...result,
   balance: getBalance(userId)
 });
-
+// CHECK ROUND STATUS
+router.get("/status/:roundId", (req, res) => {
+  try {
+    const { roundId } = req.params;
+    const status = getRoundStatus(roundId);
+    res.json(status);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
   } catch (err) {
     return res.status(400).json({
       success: false,
@@ -88,4 +107,3 @@ return res.json({
 });
 
 module.exports = router;
-

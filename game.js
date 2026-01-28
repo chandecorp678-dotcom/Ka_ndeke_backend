@@ -62,7 +62,16 @@ router.post("/start", (req, res) => {
     return res.status(400).json({ error: err.message });
   }
 });
+const { getRoundStatus } = require("./gameEngine");
 
+router.get("/status/:roundId", (req, res) => {
+  try {
+    const status = getRoundStatus(req.params.roundId);
+    res.json(status);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 /* ---------------- CASH OUT ---------------- */
 
 router.post("/cashout", (req, res) => {

@@ -6,6 +6,15 @@ const crypto = require('crypto');
  * Later this moves to DB or Redis.
  */
 const rounds = new Map();
+function getRoundStatus(roundId) {
+  const round = rounds.get(roundId);
+  if (!round) throw new Error("Round not found");
+
+  return {
+    status: round.status,
+    endedAt: round.endedAt
+  };
+}
 function crashDelayFromPoint(crashPoint) {
   // Converts multiplier into milliseconds (server-only)
   return Math.floor((crashPoint - 1) * 1000);

@@ -9,25 +9,6 @@ const {
   getRoundStatus
 } = require("./gameEngine");
 
-/**
- * DEMO WALLET STORE (TEMPORARY)
- * Later this will be DB-backed
- */
-const wallets = new Map();
-
-/* ---------------- WALLET HELPERS ---------------- */
-
-function getBalance(userId) {
-  if (!wallets.has(userId)) {
-    wallets.set(userId, 100); // demo starting balance
-  }
-  return wallets.get(userId);
-}
-
-function setBalance(userId, amount) {
-  wallets.set(userId, Number(amount));
-}
-
 /* ---------------- START ROUND ---------------- */
 
 router.post("/start", (req, res) => {
@@ -38,16 +19,6 @@ router.post("/start", (req, res) => {
     return res.status(400).json({ error: "Invalid bet amount" });
   }
 
-  const balance = getBalance(userId);
-
-  // 🔐 Prevent playing without funds
-  if (balance < betAmount) {
-    return res.status(400).json({ error: "Insufficient balance" });
-  }
-
-  // 🔐 Debit wallet ONCE at round start
-  setBalance(userId, balance - betAmount);
-
   try {
     const round = startRound();
 
@@ -57,8 +28,6 @@ router.post("/start", (req, res) => {
     });
 
   } catch (err) {
-    // rollback safety
-    setBalance(userId, balance);
     return res.status(400).json({ error: err.message });
   }
 });
@@ -93,12 +62,6 @@ router.post("/cashout", (req, res) => {
       multiplier,
       userId
     );
-
-    // 🔐 Credit wallet ONLY on win
-    if (result.win) {
-      const currentBalance = getBalance(userId);
-      setBalance(userId, currentBalance + result.payout);
-    }
 
     return res.json({
       success: true,

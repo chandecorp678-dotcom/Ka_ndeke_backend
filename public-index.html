@@ -379,6 +379,10 @@ async function refreshBalance() {
     console.error("refreshBalance error", err);
   }
 }
+  // 🔁 Backward compatibility wrapper
+function getBalance() {
+  refreshBalance();
+}
 
 async function login() {
   if (!loginPhone.value || !loginPassword.value) return alert("Phone and password required");
@@ -451,25 +455,11 @@ async function deposit() {
   if (!amt || isNaN(amt) || amt <= 0) return alert("Invalid amount");
 
   if (user.guest) {
-  const res = await fetch(API + "/users/deposit", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      amount: Number(amt),
-      userId: "guest"
-    })
-  });
-
-  const data = await res.json();
-
-  if (!res.ok) {
-    return alert(data.error || "Deposit failed");
-  }
-
-  balance = Number(data.balance);
-localStorage.setItem("guest_balance", balance);
-updateUI();
-return;
+  balance += Number(amt);
+  localStorage.setItem("guest_balance", balance);
+  updateUI();
+  alert("Deposit succeeded");
+  return;
 }
 
   const token = localStorage.getItem("token");

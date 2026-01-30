@@ -161,6 +161,34 @@ a { color: #FFD700 !important; }
 </div>
 
 <script>
+/* 🔒 HARD GLOBAL GUARD — MUST BE FIRST */
+
+function getBalance() {
+  // Prefer persisted guest balance if present, otherwise fall back to in-memory balance
+  const stored = localStorage.getItem("guest_balance");
+
+  if (stored !== null) {
+    return Number(stored);
+  }
+
+  if (typeof balance !== "undefined") {
+    return Number(balance || 0);
+  }
+
+  return 0;
+}
+
+if (typeof refreshBalance !== "function") {
+
+  function refreshBalance() {
+    // Placeholder no-op until real refreshBalance is available
+    return;
+  }
+
+}
+
+/* ============================================================= */
+  
 const API = "https://ka-ndeke-backend-5dgy.onrender.com/api"; // backend base
 
 let user = { guest: true };
@@ -378,10 +406,6 @@ async function refreshBalance() {
   } catch (err) {
     console.error("refreshBalance error", err);
   }
-}
-  // 🔁 Backward compatibility wrapper
-function getBalance() {
-  refreshBalance();
 }
 
 async function login() {

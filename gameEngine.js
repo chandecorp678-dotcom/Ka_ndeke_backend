@@ -16,8 +16,23 @@ function getRoundStatus(roundId) {
     return { status: 'invalid' };
   }
 
+  let multiplier = null;
+
+  if (round.status === 'running') {
+    multiplier = computeMultiplier(round.startedAt);
+
+    // Force crash if multiplier passes crashPoint
+    if (multiplier >= round.crashPoint) {
+      round.status = 'crashed';
+      round.locked = true;
+      round.endedAt = Date.now();
+      multiplier = round.crashPoint;
+    }
+  }
+
   return {
     status: round.status,
+    multiplier,
     endedAt: round.endedAt
   };
 }
@@ -25,6 +40,12 @@ function getRoundStatus(roundId) {
 /* ---------------- ROUND CREATION ---------------- */
 
 function crashDelayFromPoint(crashPoint) {
+  function computeMultiplier(startedAt) {
+  const elapsedMs = Date.now() - startedAt;
+  const growthPerSecond = 1; // 1x per second (linear for now)
+  const multiplier = 1 + (elapsedMs / 1000) * growthPerSecond;
+  return Number(multiplier.toFixed(2));
+  }
   // Converts multiplier into milliseconds (server-only)
   return Math.floor((crashPoint - 1) * 1000);
 }
@@ -75,7 +96,7 @@ function startRound() {
 
 /* ---------------- CASH OUT ---------------- */
 
-function cashOut(roundId, betAmount, cashoutMultiplier, playerId) {
+function cashOut(roundId, betAmount, _ignoredMultiplier, playerId) {
   const round = rounds.get(roundId);
   if (!round) {
     throw new Error('Invalid round');
@@ -102,7 +123,9 @@ function cashOut(roundId, betAmount, cashoutMultiplier, playerId) {
   }
 
   // AFTER crash → loss
-  if (cashoutMultiplier >= round.crashPoint) {
+  const serverMultiplier = computeMultiplier(round.startedAt);
+
+if (serverMultiplier >= round.crashPoint) {
     round.status = 'crashed';
     round.locked = true;
     round.endedAt = Date.now();

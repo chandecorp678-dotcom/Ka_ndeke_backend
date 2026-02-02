@@ -194,9 +194,6 @@ const API = "https://ka-ndeke-backend-5dgy.onrender.com/api"; // backend base
 let user = { guest: true };
 let balance = Number(localStorage.getItem("guest_balance") || 10);
 let running = false;
-let multiplier = 1;
-let interval = null;
-let crashPoint = 0;
 let currentBet = 0;
 let roundCrashed = false;
 let currentRoundId = null;
@@ -286,36 +283,38 @@ statusPoller = setInterval(async () => {
   try {
     const res = await fetch(`${API}/game/status/${currentRoundId}?userId=guest`);
     const data = await res.json();
-    
-										if (!running) = return;
+
+    if (!running) return;
+
+    if (data.status === "running" && data.multiplier) {
+      multiplier = data.multiplier;
+      document.getElementById("multiplier").textContent =
+        multiplier.toFixed(2) + "x";
+
+      const x = multiplier * 15;
+      const y = multiplier * -6;
+      document.getElementById("plane").style.transform =
+        `translate(${x}px, ${y}px)`;
+    }
+
     if (data.status === "crashed") {
       handleCrashFromServer();
     }
   } catch (err) {
     console.error("Status poll error", err);
   }
-}, 300);
+}, 120);
+  if (data.status === "running" && data.multiplier) {
   document.getElementById("cashOutBtn").disabled = false;
+}
   multiplier = 1;
 
   const planeEl = document.getElementById("plane");
 
-  interval = setInterval(() => {
-  if (!running) return;
-
-  multiplier += 0.01;
-  document.getElementById("multiplier").innerText =
-    multiplier.toFixed(2) + "x";
-
-  const x = multiplier * 15;
-  const y = multiplier * -6;
-  planeEl.style.transform = `translate(${x}px, ${y}px)`;
-}, 100);
 }
 async function cashOut() {
   if (roundCrashed) {
-   alert("Too late — round already 
-    crashed");
+   alert("Too late — round already crashed");
   return;
   }
   // 🔐 STAGE 2.5 SAFETY LATCH — verify round still alive
@@ -363,12 +362,12 @@ async function cashOut() {
     const res = await fetch(API + "/game/cashout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-  roundId: currentRoundId,
-  betAmount: currentBet,
-  multiplier: multiplier,
-  userId: user.guest ? "guest" : user.id
-   })
+    body: JSON.stringify({
+ 							 roundId: currentRoundId,
+  							betAmount: currentBet,
+  							userId: user.guest ? "guest" : 
+   	user.id
+							})
 });
 
     data = await res.json();

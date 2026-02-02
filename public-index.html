@@ -281,7 +281,10 @@ updateUI();
   // 🔁 Start backend crash polling
 statusPoller = setInterval(async () => {
   try {
-    const res = await fetch(`${API}/game/status/${currentRoundId}?userId=guest`);
+    const res = await fetch(`${API}/game/status/$
+	{currentRoundId}?userId=${user.guest ?
+	"guest" : user.id}`
+	);
     const data = await res.json();
 
     if (!running) return;

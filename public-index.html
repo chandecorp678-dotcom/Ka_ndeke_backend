@@ -194,23 +194,17 @@ const API = "https://ka-ndeke-backend-5dgy.onrender.com/api"; // backend base
 let user = { guest: true };
 let balance = Number(localStorage.getItem("guest_balance") || 10);
 let running = false;
-let multiplier = 1;        // FIX: declare multiplier
 let currentBet = 0;
 let roundCrashed = false;
 let currentRoundId = null;
 let statusPoller = null;
-
 function handleCrashFromServer() {
   if (!running) return;
 
   running = false;
   roundCrashed = true;
-
-  // FIX: clear interval & poller safely
-  if (statusPoller) {
-    clearInterval(statusPoller);
-    statusPoller = null;
-  }
+  clearInterval(interval);
+  clearInterval(statusPoller);
 
   document.getElementById("cashOutBtn").disabled = true;
 
@@ -248,14 +242,67 @@ function updateUI() {
 }
 updateUI();
 
+/* SPECTATOR POLLER — show running rounds immediately on page load
+   Insert this block immediately AFTER the line `updateUI();` and BEFORE the
+   `/* GAME LOGIC */` comment.
+*/
+let spectatorPoller = null;
+
+function stopSpectatorPoll() {
+  if (spectatorPoller) {
+    clearInterval(spectatorPoller);
+    spectatorPoller = null;
+  }
+}
+
+function startSpectatorPoll(intervalMs = 200) {
+  // don't start twice
+  if (spectatorPoller) return;
+
+  spectatorPoller = setInterval(async () => {
+    try {
+      // If user has joined a round locally (running === true), stop spectator polling
+      // — the in-page player logic will take over UI updates.
+      if (typeof running !== 'undefined' && running) {
+        stopSpectatorPoll();
+        return;
+      }
+
+      const res = await fetch(`${API}/game/status?userId=${user && user.guest ? 'guest' : (user && user.id ? user.id : 'guest')}`);
+      const data = await res.json().catch(() => ({}));
+      if (!data) return;
+
+      // Use server multiplier if provided (fallback to 1)
+      const mult = Number(data.multiplier ?? 1);
+      document.getElementById('multiplier').textContent = mult.toFixed(2) + 'x';
+
+      // Update plane position visually (tweak scale if you want)
+      const x = mult * 15;
+      const y = mult * -6;
+      document.getElementById('plane').style.transform = `translate(${x}px, ${y}px)`;
+
+      // Keep Cash Out disabled for spectators (they haven't joined)
+      document.getElementById('cashOutBtn').disabled = true;
+
+      // If server says crashed, show crash state briefly (UI reset handled elsewhere)
+      if (data.status === 'crashed') {
+        // ensure multiplier shows exact crash point
+        document.getElementById('multiplier').textContent = Number(data.multiplier ?? data.crashPoint ?? 1).toFixed(2) + 'x';
+        // optionally flash an alert or animate crash — we keep it simple
+      }
+    } catch (err) {
+      console.error('spectator poll error', err);
+      // keep polling; transient network errors are normal
+    }
+  }, intervalMs);
+}
+
+// Start spectator polling as soon as script runs / page loads
+// (This will be a no-op if you start the game and 'running' becomes true.)
+startSpectatorPoll();
+
 /* GAME LOGIC */
 async function startGame() {
-  // FIX 5: prevent double polling
-  if (statusPoller) {
-    clearInterval(statusPoller);
-    statusPoller = null;
-  }
-
   if (running) return;
 
   const bet = Number(document.getElementById("betAmount").value);
@@ -289,22 +336,14 @@ currentBet = bet;
 roundCrashed = false;
 running = true;
 
-// FIX 2: enable Cash Out when round starts
-document.getElementById("cashOutBtn").disabled = false;
-
-// FIX 4: reset multiplier & plane at round start (before polling)
-multiplier = 1;
-document.getElementById("multiplier").textContent = "1.00x";
-document.getElementById("plane").style.transform = "translate(0,0)";
-
 updateUI();
   // 🔁 Start backend crash polling
 statusPoller = setInterval(async () => {
   try {
-    // FIX 1: correct single-line template literal fetch
-    const res = await fetch(
-      `${API}/game/status/${currentRoundId}?userId=${user.guest ? "guest" : user.id}`
-    );
+    const res = await fetch(`${API}/game/status/$
+	{currentRoundId}?userId=${user.guest ?
+	"guest" : user.id}`
+	);
     const data = await res.json();
 
     if (!running) return;
@@ -326,7 +365,13 @@ statusPoller = setInterval(async () => {
   } catch (err) {
     console.error("Status poll error", err);
   }
-}, 200);
+}, 120);
+  if (data.status === "running" && data.multiplier) {
+  document.getElementById("cashOutBtn").disabled = false;
+}
+  multiplier = 1;
+
+  const planeEl = document.getElementById("plane");
 
 }
 async function cashOut() {
@@ -360,7 +405,11 @@ async function cashOut() {
   // 🛑 HARD STOP — this stops the plane instantly
   running = false;
 
-  // FIX 3: clear poller safely
+  if (interval) {
+    clearInterval(interval);
+    interval = null;
+  }
+
   if (statusPoller) {
     clearInterval(statusPoller);
     statusPoller = null;
@@ -601,4 +650,4 @@ async function withdraw() {
 </script>
 
 </body>
-	  </html>
+	</html> 

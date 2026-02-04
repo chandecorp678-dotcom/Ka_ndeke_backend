@@ -42,27 +42,16 @@ router.get("/status", (req, res) => {
 
 /* ---------------- CASH OUT ---------------- */
 
-router.post("/cashout", (req, res) => {
+rrouter.post("/cashout", (req, res) => {
   const userId = req.user?.id || req.body.userId || "guest";
 
-  if (!roundId || !betAmount || !multiplier) {
-    return res.status(400).json({ error: "Missing parameters" });
-  }
-
   try {
-    const result = cashOut(
-      roundId,
-      betAmount,
-      multiplier,
-      userId
-    );
+    const result = cashOut(userId);
 
     return res.json({
       success: true,
-      ...result,
-      balance: getBalance(userId)
+      ...result
     });
-
   } catch (err) {
     return res.status(400).json({
       success: false,
@@ -70,6 +59,7 @@ router.post("/cashout", (req, res) => {
     });
   }
 });
+
 
 /* ---------------- EXPORT ---------------- */
 

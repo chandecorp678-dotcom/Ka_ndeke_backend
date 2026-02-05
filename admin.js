@@ -21,6 +21,7 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     return res.status(500).json({ error: "Database not initialized on server" });
   }
 
+  // Create users table (if not present) and bets table
   const createUsersTable = `
     CREATE TABLE IF NOT EXISTS users (
       id UUID PRIMARY KEY,
@@ -34,9 +35,26 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     );
   `;
 
+  const createBetsTable = `
+    CREATE TABLE IF NOT EXISTS bets (
+      id UUID PRIMARY KEY,
+      round_id TEXT NOT NULL,
+      user_id UUID,
+      bet_amount NUMERIC(18,2) NOT NULL,
+      payout NUMERIC(18,2),
+      status TEXT NOT NULL DEFAULT 'active',  -- active, cashed, lost, refunded
+      meta JSONB DEFAULT '{}'::jsonb,
+      createdat TIMESTAMPTZ NOT NULL,
+      updatedat TIMESTAMPTZ NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_bets_user_id ON bets (user_id);
+    CREATE INDEX IF NOT EXISTS idx_bets_round_id ON bets (round_id);
+  `;
+
   try {
     await db.query(createUsersTable);
-    return res.json({ ok: true, message: "users table created (if not already existed)" });
+    await db.query(createBetsTable);
+    return res.json({ ok: true, message: "users + bets tables created (if not already existed)" });
   } catch (err) {
     console.error("Init DB error:", err);
     return res.status(500).json({ error: "Init DB failed", detail: err.message });

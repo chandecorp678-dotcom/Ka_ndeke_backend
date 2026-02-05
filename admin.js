@@ -13,6 +13,36 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// One-time admin endpoint: create required tables (safe: uses IF NOT EXISTS)
+// Add this block near the other admin routes. Remove it after you ran it successfully.
+router.post("/init-db", requireAdmin, async (req, res) => {
+  const db = req.app.locals.db;
+  if (!db || typeof db.query !== "function") {
+    return res.status(500).json({ error: "Database not initialized on server" });
+  }
+
+  const createUsersTable = `
+    CREATE TABLE IF NOT EXISTS users (
+      id UUID PRIMARY KEY,
+      username TEXT NOT NULL,
+      phone TEXT UNIQUE NOT NULL,
+      password_hash TEXT,
+      balance NUMERIC(18,2) NOT NULL DEFAULT 0,
+      freerounds INTEGER NOT NULL DEFAULT 0,
+      createdat TIMESTAMPTZ NOT NULL,
+      updatedat TIMESTAMPTZ NOT NULL
+    );
+  `;
+
+  try {
+    await db.query(createUsersTable);
+    return res.json({ ok: true, message: "users table created (if not already existed)" });
+  } catch (err) {
+    console.error("Init DB error:", err);
+    return res.status(500).json({ error: "Init DB failed", detail: err.message });
+  }
+});
+
 // GET /api/admin/users -> list all users (no password_hash)
 router.get("/users", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;

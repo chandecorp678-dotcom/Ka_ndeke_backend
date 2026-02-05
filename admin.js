@@ -1,6 +1,8 @@
 const express = require("express");
 const path = require("path");
 const router = express.Router();
+const logger = require("./logger");
+const { sendError } = require("./apiResponses");
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-this-admin-token"; // set a strong value in Render env
 
@@ -8,7 +10,7 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-this-admin-token"; // set
 function requireAdmin(req, res, next) {
   const t = req.get("x-admin-token") || "";
   if (!t || t !== ADMIN_TOKEN) {
-    return res.status(401).json({ error: "Missing or invalid admin token" });
+    return sendError(res, 401, "Missing or invalid admin token");
   }
   next();
 }
@@ -18,7 +20,7 @@ function requireAdmin(req, res, next) {
 router.post("/init-db", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   if (!db || typeof db.query !== "function") {
-    return res.status(500).json({ error: "Database not initialized on server" });
+    return sendError(res, 500, "Database not initialized on server");
   }
 
   // Create users table (if not present) and bets table
@@ -56,8 +58,8 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     await db.query(createBetsTable);
     return res.json({ ok: true, message: "users + bets tables created (if not already existed)" });
   } catch (err) {
-    console.error("Init DB error:", err);
-    return res.status(500).json({ error: "Init DB failed", detail: err.message });
+    logger.error("Init DB error:", { message: err && err.message ? err.message : String(err), stack: err && err.stack ? err.stack : undefined });
+    return sendError(res, 500, "Init DB failed", err && err.message ? err.message : undefined);
   }
 });
 
@@ -72,15 +74,15 @@ router.get("/users", requireAdmin, async (req, res) => {
     );
     return res.json({ users: result.rows || [] });
   } catch (err) {
-    console.error("Admin list users error:", err);
-    return res.status(500).json({ error: "Server error" });
+    logger.error("Admin list users error:", { message: err && err.message ? err.message : String(err), stack: err && err.stack ? err.stack : undefined });
+    return sendError(res, 500, "Server error");
   }
 });
 
 // GET /api/admin/export-db -> optional: if you still want to download the SQLite file
 // Not useful with Postgres unless you export manually. You can leave this out.
 router.get("/export-db", requireAdmin, (req, res) => {
-  return res.status(501).json({ error: "Postgres export not supported via API" });
+  return sendError(res, 501, "Postgres export not supported via API");
 });
 
 module.exports = router;

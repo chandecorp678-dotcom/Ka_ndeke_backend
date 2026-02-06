@@ -2,11 +2,16 @@ const express = require("express");
 const router = express.Router();
 
 const users = require("./users");
+const { optionalAuth } = require("./auth");
 
 // health endpoint for frontend probe
 router.get("/health", (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
+
+// Attach optional authentication for all subsequent API routes.
+// This will set req.user when a valid Bearer token is provided, but won't reject requests without one.
+router.use(optionalAuth);
 
 // mount auth & user endpoints
 router.use("/", users);

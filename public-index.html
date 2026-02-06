@@ -324,11 +324,16 @@ async function startGame() {
   if (!bet || isNaN(bet) || bet <= 0) {
     return alert("Invalid bet amount");
   }
-
+										
   try {
+    // include Authorization header when token exists
+    const token = localStorage.getItem("token");
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = "Bearer " + token;
+
     const res = await fetch(API + "/game/start", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         betAmount: bet,
         userId: user.guest ? "guest" : user.id
@@ -432,9 +437,14 @@ async function cashOut() {
   document.getElementById("cashOutBtn").disabled = true;
 
   try {
+    // include Authorization header when token exists
+    const token = localStorage.getItem("token");
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = "Bearer " + token;
+
     const res = await fetch(API + "/game/cashout", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         userId: user.guest ? "guest" : user.id
       })
@@ -642,4 +652,4 @@ async function withdraw() {
 </script>
 
 </body>
-</html>
+  </html>

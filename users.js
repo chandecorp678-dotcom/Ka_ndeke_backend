@@ -1,3 +1,5 @@
+'use strict';
+
 const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
@@ -5,7 +7,7 @@ const jwt = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
 const logger = require("./logger");
 const { sendError, sendSuccess, wrapAsync } = require("./apiResponses");
-const metrics = require("./metrics");
+const cache = require("./cache");
 
 const JWT_SECRET = process.env.JWT_SECRET || "change-this-secret"; // secure secret in Render env
 
@@ -168,62 +170,104 @@ router.post("/users/withdraw", requireAuth, express.json(), wrapAsync(async (req
   return changeBalanceHandler(req, res);
 }));
 
-// ----------------- Public game history endpoints -----------------
+// ----------------- Public game history endpoints with caching -----------------
 
-// GET /api/game/history?limit=50
+// Cache TTLs (ms)
+const HISTORY_CACHE_TTL_MS = Number(process.env.HISTORY_CACHE_TTL_MS || 15_000); // 15s
+const ROUND_CACHE_TTL_MS = Number(process.env.ROUND_CACHE_TTL_MS || 5_000); // 5s
+
+function isAdminRequest(req) {
+  const t = req.get("x-admin-token") || "";
+  return !!t;
+}
+
+/**
+ * GET /api/game/history?limit=50&since=<iso|epoch-ms>&force=1
+ * - Cached for HISTORY_CACHE_TTL_MS unless admin header present or force=1 query param.
+ */
 router.get("/game/history", wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
+  if (!db) {
+    logger.error("game.history: DB not initialized");
+    return sendError(res, 500, "Database not initialized");
+  }
+
   const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+  const force = String(req.query.force || '').toLowerCase() === '1' || String(req.query.force || '').toLowerCase() === 'true';
+  const since = req.query.since || null;
+
+  const cacheKey = `history:limit=${limit}:since=${since || ''}`;
+
+  // bypass cache for admin requests or explicit force
+  if (!isAdminRequest(req) && !force) {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+  }
 
   try {
-    const rows = await db.query(
-      `SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta
-       FROM rounds
-       ORDER BY started_at DESC
-       LIMIT $1`,
-      [limit]
-    );
-    return res.json({ rounds: rows.rows || [] });
+    let query = `
+      SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta
+      FROM rounds
+    `;
+    const params = [];
+    if (since) {
+      params.push(since);
+      query += ` WHERE started_at >= $${params.length}`;
+    }
+    query += ` ORDER BY started_at DESC LIMIT $${params.length + 1}`;
+    params.push(limit);
+
+    const rows = await db.query(query, params);
+    const payload = { rounds: rows.rows || [] };
+
+    // store in cache (non-admin requests only)
+    if (!isAdminRequest(req) && !force) cache.set(cacheKey, payload, HISTORY_CACHE_TTL_MS);
+
+    return res.json(payload);
   } catch (err) {
     logger.error("game.history.error", { message: err && err.message ? err.message : String(err) });
     return sendError(res, 500, "Server error");
   }
 }));
 
-// GET /api/game/rounds/:roundId -> details + bets
+/**
+ * GET /api/game/rounds/:roundId
+ * - Cached short-term to speed repeated detail views.
+ */
 router.get("/game/rounds/:roundId", wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   const roundId = req.params.roundId;
   if (!roundId) return sendError(res, 400, "roundId required");
+  if (!db) {
+    logger.error("game.rounds.detail: DB not initialized");
+    return sendError(res, 500, "Database not initialized");
+  }
+
+  const force = String(req.query.force || '').toLowerCase() === '1' || String(req.query.force || '').toLowerCase() === 'true';
+  const cacheKey = `round:${roundId}`;
+
+  if (!isAdminRequest(req) && !force) {
+    const cached = cache.get(cacheKey);
+    if (cached) return res.json(cached);
+  }
 
   try {
     const r = await db.query(`SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta FROM rounds WHERE round_id = $1`, [roundId]);
     if (!r.rowCount) return sendError(res, 404, "Round not found");
 
-    const bets = await db.query(`SELECT id, user_id, bet_amount, payout, status, meta, createdat FROM bets WHERE round_id = $1`, [roundId]);
+    const bets = await db.query(`SELECT id, user_id, bet_amount, payout, status, meta, createdat FROM bets WHERE round_id = $1 ORDER BY createdat ASC`, [roundId]);
 
-    return res.json({ round: r.rows[0], bets: bets.rows || [] });
+    const payload = { round: r.rows[0], bets: bets.rows || [] };
+
+    if (!isAdminRequest(req) && !force) cache.set(cacheKey, payload, ROUND_CACHE_TTL_MS);
+
+    return res.json(payload);
   } catch (err) {
     logger.error("game.round.detail.error", { message: err && err.message ? err.message : String(err) });
     return sendError(res, 500, "Server error");
   }
 }));
-
-// ----------------- Public aggregated metrics endpoint -----------------
-router.get("/metrics/public", async (req, res) => {
-  try {
-    const m = metrics.getMetrics();
-    return res.json({
-      totalBets: m.totalBets,
-      totalVolume: m.totalVolume,
-      totalCashouts: m.totalCashouts,
-      totalPayouts: m.totalPayouts,
-      lastUpdated: m.lastUpdated
-    });
-  } catch (err) {
-    logger.error("public.metrics.error", { message: err && err.message ? err.message : String(err) });
-    return res.status(500).json({ error: "Server error" });
-  }
-});
 
 module.exports = router;

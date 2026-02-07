@@ -32,6 +32,7 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     return sendError(res, 500, "Database not initialized on server");
   }
 
+  // Users table
   const createUsersTable = `
     CREATE TABLE IF NOT EXISTS users (
       id UUID PRIMARY KEY,
@@ -45,6 +46,7 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     );
   `;
 
+  // Bets table (with indexes)
   const createBetsTable = `
     CREATE TABLE IF NOT EXISTS bets (
       id UUID PRIMARY KEY,
@@ -62,12 +64,16 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     CREATE INDEX IF NOT EXISTS idx_bets_createdat ON bets (createdat DESC);
   `;
 
+  // Rounds table (with columns for revealed seed and commit index)
   const createRoundsTable = `
     CREATE TABLE IF NOT EXISTS rounds (
       id UUID PRIMARY KEY,
       round_id TEXT UNIQUE NOT NULL,
       crash_point NUMERIC(10,2),
       server_seed_hash TEXT,
+      server_seed TEXT,
+      commit_idx BIGINT,
+      server_seed_revealed_at TIMESTAMPTZ,
       started_at TIMESTAMPTZ NOT NULL,
       ended_at TIMESTAMPTZ,
       meta JSONB DEFAULT '{}'::jsonb,
@@ -77,12 +83,30 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     CREATE INDEX IF NOT EXISTS idx_rounds_started_at ON rounds (started_at);
   `;
 
+  // Seed commits table: stores pre-committed seed hashes and their sequential index.
+  const createSeedCommitsTable = `
+    CREATE TABLE IF NOT EXISTS seed_commits (
+      id SERIAL PRIMARY KEY,
+      idx BIGINT UNIQUE NOT NULL,
+      seed_hash TEXT UNIQUE NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_seed_commits_idx ON seed_commits (idx DESC);
+  `;
+
   try {
     await db.query(createUsersTable);
     await db.query(createBetsTable);
     await db.query(createRoundsTable);
+    await db.query(createSeedCommitsTable);
+
+    // Ensure columns exist if rounds table pre-existed without them (safe ALTER)
+    await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS server_seed TEXT`);
+    await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS server_seed_revealed_at TIMESTAMPTZ`);
+    await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS commit_idx BIGINT`);
+
     logger.info("admin.init_db.completed");
-    return res.json({ ok: true, message: "users + bets + rounds tables and indexes created (if not already existed)" });
+    return res.json({ ok: true, message: "users + bets + rounds + seed_commits tables and indexes created (if not existed)" });
   } catch (err) {
     logger.error("admin.init_db.error", { message: err && err.message ? err.message : String(err) });
     return sendError(res, 500, "Init DB failed", err && err.message ? err.message : undefined);
@@ -134,7 +158,7 @@ router.get("/rounds", requireAdmin, async (req, res) => {
     const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
     const offset = Math.max(0, Number(req.query.offset) || 0);
     const q = await db.query(
-      `SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta, createdat
+      `SELECT round_id, crash_point, server_seed_hash, server_seed, commit_idx, server_seed_revealed_at, started_at, ended_at, meta, createdat
        FROM rounds
        ORDER BY started_at DESC
        LIMIT $1 OFFSET $2`,
@@ -157,7 +181,7 @@ router.get("/rounds/:roundId", requireAdmin, async (req, res) => {
   if (!roundId) return sendError(res, 400, "roundId required");
 
   try {
-    const r = await db.query(`SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta, createdat FROM rounds WHERE round_id = $1`, [roundId]);
+    const r = await db.query(`SELECT round_id, crash_point, server_seed_hash, server_seed, commit_idx, server_seed_revealed_at, started_at, ended_at, meta, createdat FROM rounds WHERE round_id = $1`, [roundId]);
     if (!r.rowCount) return sendError(res, 404, "Round not found");
 
     const bets = await db.query(`SELECT id, user_id, bet_amount, payout, status, meta, createdat, updatedat FROM bets WHERE round_id = $1 ORDER BY createdat ASC`, [roundId]);

@@ -245,7 +245,19 @@ async function start() {
       if (!socketAvailable) {
         logger.warn('server.running_without_socketio', { message: 'Socket.IO not available; realtime disabled until dependency installed.' });
       }
-    });
+    "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.0",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.0",
+    "sqlite": "^4.1.2",
+    "sqlite3": "^5.1.6",
+    "uuid": "^9.0.0",
+    "pg": "^8.11.0",
+    "socket.io": "^4.9.1"
+  },  
+});
 
     // If sockets are available, wire basic connection events (non-critical)
     if (socketAvailable && io) {

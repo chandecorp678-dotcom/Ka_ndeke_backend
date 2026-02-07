@@ -2,13 +2,12 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const crypto = require("crypto");
 
 const logger = require("./logger");
 const { initDb, pool } = require("./db");
 const routes = require("./routes");
 const gameEngine = require("./gameEngine");
-// require game routes module to access its cleanup helper
-const gameRoutes = require("./game");
 const { sendError } = require("./apiResponses");
 
 const app = express();
@@ -35,19 +34,16 @@ app.use((req, res, next) => {
   const timer = setTimeout(() => {
     if (finished) return;
     finished = true;
-    // log the timed-out request
     try {
       logger.warn('http.request.timeout', { method: req.method, url: req.originalUrl, timeoutMs });
     } catch (e) {}
     if (!res.headersSent) {
-      // Use sendError structure for a clean response
       try {
         return sendError(res, 503, "Request timeout");
       } catch (e) {
         try { res.status(503).send("Request timeout"); } catch (e2) {}
       }
     }
-    // Destroy the incoming request socket to free resources
     try { req.destroy(); } catch (e) {}
   }, timeoutMs);
 
@@ -61,7 +57,6 @@ app.use((req, res, next) => {
   res.on('close', cleanup);
   req.on('aborted', cleanup);
 
-  // proceed to next middleware/route
   next();
 });
 
@@ -70,6 +65,89 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // mount API routes under /api
 app.use("/api", routes);
+
+async function persistRoundStart(db, round) {
+  try {
+    const id = crypto.randomUUID();
+    const startedAtIso = new Date(Number(round.startedAt)).toISOString();
+    await db.query(
+      `INSERT INTO rounds (id, round_id, server_seed_hash, crash_point, started_at, meta, createdat)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (round_id) DO NOTHING`,
+      [id, round.roundId, round.serverSeedHash || null, round.crashPoint || null, startedAtIso, round.meta || {}]
+    );
+    logger.info('persistRoundStart.success', { roundId: round.roundId });
+  } catch (e) {
+    logger.error('persistRoundStart.error', { message: e && e.message ? e.message : String(e) });
+  }
+}
+
+async function persistRoundCrash(db, round) {
+  try {
+    const endedAtIso = new Date(Number(round.endedAt)).toISOString();
+    await db.query(
+      `UPDATE rounds
+       SET crash_point = $1, ended_at = $2, meta = meta || $3::jsonb
+       WHERE round_id = $4`,
+      [round.crashPoint || null, endedAtIso, JSON.stringify(round.meta || {}), round.roundId]
+    );
+    logger.info('persistRoundCrash.success', { roundId: round.roundId });
+  } catch (e) {
+    logger.error('persistRoundCrash.error', { message: e && e.message ? e.message : String(e) });
+  }
+}
+
+async function start() {
+  try {
+    await initDb();       // test Postgres connection
+    app.locals.db = pool; // attach Postgres pool to app
+
+    // Attach listeners to gameEngine events to persist rounds
+    try {
+      const emitter = gameEngine.emitter;
+      if (emitter && emitter.on) {
+        emitter.on('roundStarted', async (r) => {
+          try { await persistRoundStart(pool, r); } catch (e) { logger.error('emitter.roundStarted.handler', { message: e && e.message ? e.message : String(e) }); }
+        });
+        emitter.on('roundCrashed', async (r) => {
+          try { await persistRoundCrash(pool, r); } catch (e) { logger.error('emitter.roundCrashed.handler', { message: e && e.message ? e.message : String(e) }); }
+        });
+        logger.info('gameEngine.listeners.attached');
+      } else {
+        logger.warn('gameEngine.no_emitter');
+      }
+    } catch (e) {
+      logger.error('start.attach_listeners_error', { message: e && e.message ? e.message : String(e) });
+    }
+
+    // Upsert current round to DB in case it started before listeners attached
+    try {
+      const status = gameEngine.getRoundStatus();
+      if (status && status.status === 'running' && status.roundId) {
+        await persistRoundStart(pool, {
+          roundId: status.roundId,
+          serverSeedHash: status.serverSeedHash,
+          crashPoint: status.multiplier >= 1 ? null : null, // crashPoint unknown here; persisted earlier on start event normally
+          startedAt: status.startedAt,
+          meta: {}
+        });
+      }
+    } catch (e) {
+      logger.warn('start.upsert_current_round_failed', { message: e && e.message ? e.message : String(e) });
+    }
+
+    const PORT = process.env.PORT || 3000;
+    serverInstance = app.listen(PORT, () => {
+      logger.info("server.started", { port: PORT, request_timeout_ms: REQUEST_TIMEOUT_MS });
+    });
+
+  } catch (err) {
+    logger.error("server.start.failed", { message: err && err.message ? err.message : String(err) });
+    process.exit(1);
+  }
+}
+
+start();
 
 // Global error handler (must be registered AFTER routes)
 app.use((err, req, res, next) => {
@@ -88,24 +166,6 @@ app.use((err, req, res, next) => {
 
   return sendError(res, status, message, err && (err.detail || err.stack || err.message));
 });
-
-async function start() {
-  try {
-    await initDb();       // test Postgres connection
-    app.locals.db = pool; // attach Postgres pool to app
-
-    const PORT = process.env.PORT || 3000;
-    serverInstance = app.listen(PORT, () => {
-      logger.info("server.started", { port: PORT, request_timeout_ms: REQUEST_TIMEOUT_MS });
-    });
-
-  } catch (err) {
-    logger.error("server.start.failed", { message: err && err.message ? err.message : String(err) });
-    process.exit(1);
-  }
-}
-
-start();
 
 // Graceful shutdown routine
 async function gracefulShutdown(reason = "signal") {
@@ -133,19 +193,6 @@ async function gracefulShutdown(reason = "signal") {
       logger.info("shutdown.http.closed");
     } else {
       logger.warn("shutdown.http.no_server_instance");
-    }
-
-    // Call game routes cleanup (clears prune interval and maps)
-    try {
-      if (gameRoutes && typeof gameRoutes.cleanup === "function") {
-        logger.info("shutdown.gameRoutes.cleanup_start");
-        try { gameRoutes.cleanup(); } catch (e) { logger.warn("shutdown.gameRoutes.cleanup_error", { message: e && e.message ? e.message : String(e) }); }
-        logger.info("shutdown.gameRoutes.cleaned");
-      } else {
-        logger.warn("shutdown.gameRoutes.no_cleanup");
-      }
-    } catch (e) {
-      logger.error("shutdown.gameRoutes.error", { message: e && e.message ? e.message : String(e) });
     }
 
     try {

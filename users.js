@@ -30,11 +30,11 @@ router.get("/health", (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
 
-const { generateCrashPoint, computePayout } = require("./gameEngine");
+const { computePayout } = require("./gameEngine");
 router.get("/game/round", (req, res) => {
   try {
-    const crashPoint = generateCrashPoint();
-    return res.json({ crashPoint });
+    // Keep this endpoint as a helper to get a sample crash point (for dev)
+    return res.json({ ok: true });
   } catch (err) {
     logger.error("Error generating crash point:", { message: err && err.message ? err.message : String(err) });
     return sendError(res, 500, "Server error");
@@ -208,7 +208,7 @@ router.get("/game/history", wrapAsync(async (req, res) => {
 
   try {
     let query = `
-      SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta
+      SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta, commit_idx
       FROM rounds
     `;
     const params = [];
@@ -254,7 +254,7 @@ router.get("/game/rounds/:roundId", wrapAsync(async (req, res) => {
   }
 
   try {
-    const r = await db.query(`SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta FROM rounds WHERE round_id = $1`, [roundId]);
+    const r = await db.query(`SELECT round_id, crash_point, server_seed_hash, server_seed, commit_idx, started_at, ended_at, meta FROM rounds WHERE round_id = $1`, [roundId]);
     if (!r.rowCount) return sendError(res, 404, "Round not found");
 
     const bets = await db.query(`SELECT id, user_id, bet_amount, payout, status, meta, createdat FROM bets WHERE round_id = $1 ORDER BY createdat ASC`, [roundId]);
@@ -266,6 +266,58 @@ router.get("/game/rounds/:roundId", wrapAsync(async (req, res) => {
     return res.json(payload);
   } catch (err) {
     logger.error("game.round.detail.error", { message: err && err.message ? err.message : String(err) });
+    return sendError(res, 500, "Server error");
+  }
+}));
+
+/* ----------------- Provably-fair endpoints ----------------- */
+
+/**
+ * GET /api/game/commitments/latest
+ * Returns the latest pre-committed seed hash and idx (public).
+ * Example: { idx: 123, seed_hash: "abcd...", created_at: "..." }
+ */
+router.get("/game/commitments/latest", wrapAsync(async (req, res) => {
+  const db = req.app.locals.db;
+  try {
+    const r = await db.query(`SELECT idx, seed_hash, created_at FROM seed_commits ORDER BY idx DESC LIMIT 1`);
+    if (!r.rowCount) return sendError(res, 404, "No commitments found");
+    return res.json(r.rows[0]);
+  } catch (err) {
+    logger.error("commitments.latest.error", { message: err && err.message ? err.message : String(err) });
+    return sendError(res, 500, "Server error");
+  }
+}));
+
+/**
+ * GET /api/game/reveal/:roundId
+ * Returns revealed serverSeed for a finished round (so clients can verify).
+ * Example response: { roundId, commitIdx, serverSeed, serverSeedHash, revealedAt, crashPoint }
+ */
+router.get("/game/reveal/:roundId", wrapAsync(async (req, res) => {
+  const db = req.app.locals.db;
+  const roundId = req.params.roundId;
+  if (!roundId) return sendError(res, 400, "roundId required");
+
+  try {
+    const r = await db.query(`SELECT round_id, server_seed_hash, server_seed, server_seed_revealed_at, started_at, ended_at, crash_point, commit_idx FROM rounds WHERE round_id = $1`, [roundId]);
+    if (!r.rowCount) return sendError(res, 404, "Round not found");
+
+    const row = r.rows[0];
+    if (!row.server_seed) return sendError(res, 400, "Seed not revealed yet for this round");
+
+    return res.json({
+      roundId: row.round_id,
+      commitIdx: row.commit_idx,
+      serverSeed: row.server_seed,
+      serverSeedHash: row.server_seed_hash,
+      revealedAt: row.server_seed_revealed_at,
+      crashPoint: row.crash_point,
+      startedAt: row.started_at,
+      endedAt: row.ended_at
+    });
+  } catch (err) {
+    logger.error("reveal.endpoint.error", { message: err && err.message ? err.message : String(err) });
     return sendError(res, 500, "Server error");
   }
 }));

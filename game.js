@@ -5,6 +5,7 @@ const router = express.Router();
 const crypto = require("crypto");
 const logger = require("./logger");
 const { runTransaction } = require("./dbHelper");
+const metrics = require("./metrics");
 
 const {
   joinRound,
@@ -15,13 +16,12 @@ const {
 // Use JSON body parsing for POST endpoints
 const json = express.json();
 
-// Simple in-memory rate limiter for cashout per user (short window)
-// Now bounded and periodically pruned to prevent unbounded memory growth
+// In-memory cashout rate limiter with pruning (unchanged)
 const cashoutTimestamps = new Map();
-const CASHOUT_MIN_INTERVAL_MS = Number(process.env.CASHOUT_MIN_INTERVAL_MS || 1000); // default 1s
-const CASHOUT_PRUNE_AGE_MS = Number(process.env.CASHOUT_PRUNE_AGE_MS || 1000 * 60 * 10); // 10min age
+const CASHOUT_MIN_INTERVAL_MS = Number(process.env.CASHOUT_MIN_INTERVAL_MS || 1000);
+const CASHOUT_PRUNE_AGE_MS = Number(process.env.CASHOUT_PRUNE_AGE_MS || 1000 * 60 * 10);
 const MAX_CASHOUT_ENTRIES = Number(process.env.MAX_CASHOUT_ENTRIES || 20000);
-const CASHOUT_PRUNE_INTERVAL_MS = Number(process.env.CASHOUT_PRUNE_INTERVAL_MS || 1000 * 60 * 5); // prune every 5 minutes
+const CASHOUT_PRUNE_INTERVAL_MS = Number(process.env.CASHOUT_PRUNE_INTERVAL_MS || 1000 * 60 * 5);
 
 function pruneCashoutMapByAge() {
   const now = Date.now();
@@ -30,7 +30,6 @@ function pruneCashoutMapByAge() {
       cashoutTimestamps.delete(key);
     }
   }
-  // Enforce max size by deleting oldest entries
   while (cashoutTimestamps.size > MAX_CASHOUT_ENTRIES) {
     const firstKey = cashoutTimestamps.keys().next().value;
     if (!firstKey) break;
@@ -38,13 +37,12 @@ function pruneCashoutMapByAge() {
   }
 }
 
-// Periodic prune (unref so it won't keep process alive)
 const pruneInterval = setInterval(() => {
   try { pruneCashoutMapByAge(); } catch (e) { logger.warn('game.cashout.prune_failed', { message: e && e.message ? e.message : String(e) }); }
 }, CASHOUT_PRUNE_INTERVAL_MS);
 if (typeof pruneInterval.unref === 'function') pruneInterval.unref();
 
-/* ---------------- START ROUND (place bet and join global round) ---------------- */
+// ---------------- START ROUND (place bet and join global round) ----------------
 router.post("/start", json, async (req, res) => {
   const db = req.app.locals.db;
   if (!db) {
@@ -52,7 +50,6 @@ router.post("/start", json, async (req, res) => {
     return res.status(500).json({ error: "Database not initialized" });
   }
 
-  // Require authenticated user for real-money bet
   const user = req.user;
   if (!user || user.guest) {
     return res.status(401).json({ error: "You must be logged in to place a bet" });
@@ -63,16 +60,13 @@ router.post("/start", json, async (req, res) => {
     return res.status(400).json({ error: "Invalid bet amount" });
   }
 
-  // Ensure there's an active running round
   const status = getRoundStatus();
   if (!status || status.status !== "running") {
     return res.status(400).json({ error: "No active running round" });
   }
 
   try {
-    // Use runTransaction to handle BEGIN/COMMIT/ROLLBACK + release
     const txResult = await runTransaction(db, async (client) => {
-      // Atomically deduct funds if sufficient
       const updateRes = await client.query(
         `UPDATE users
          SET balance = balance - $1, updatedat = NOW()
@@ -82,13 +76,11 @@ router.post("/start", json, async (req, res) => {
       );
 
       if (!updateRes.rowCount) {
-        // Throw to trigger rollback
         const err = new Error('Insufficient funds');
         err.status = 402;
         throw err;
       }
 
-      // create bet record
       const betId = crypto.randomUUID();
       await client.query(
         `INSERT INTO bets (id, round_id, user_id, bet_amount, status, createdat, updatedat)
@@ -99,13 +91,19 @@ router.post("/start", json, async (req, res) => {
       return { betId, balance: Number(updateRes.rows[0].balance) };
     });
 
-    // After commit, join the in-memory round (engine). If join fails, refund using a safe transaction.
+    // Successful DB commit -> record metrics (bet count + volume)
+    try {
+      metrics.incrementBet(betAmount);
+    } catch (e) {
+      logger.warn('metrics.incrementBet_failed_after_start', { message: e && e.message ? e.message : String(e) });
+    }
+
+    // After commit: join in-memory round. If join fails, refund in a safe tx.
     try {
       const engineResp = joinRound(user.id, betAmount);
       return res.json({ betId: txResult.betId, roundId: engineResp.roundId, serverSeedHash: engineResp.serverSeedHash, startedAt: engineResp.startedAt, balance: txResult.balance });
     } catch (err) {
       logger.error("joinRound error after DB changes", { message: err && err.message ? err.message : String(err) });
-      // refund the bet
       try {
         await runTransaction(db, async (client) => {
           await client.query(
@@ -131,15 +129,10 @@ router.post("/start", json, async (req, res) => {
   }
 });
 
-/* ---------------- ROUND STATUS ---------------- */
-/**
- * Frontend polls this to know if round has crashed
- */
+// ---------------- ROUND STATUS ----------------
 router.get("/status", (req, res) => {
   try {
     const status = getRoundStatus();
-
-    // Defensive normalization: if startedAt looks like seconds (10 digits), convert to ms
     if (status && status.startedAt) {
       const startedAtNum = Number(status.startedAt);
       if (startedAtNum && startedAtNum < 1e12) {
@@ -148,7 +141,6 @@ router.get("/status", (req, res) => {
         status.startedAt = startedAtNum;
       }
     }
-
     return res.json(status);
   } catch (err) {
     logger.error("game/status error", { message: err && err.message ? err.message : String(err) });
@@ -156,7 +148,7 @@ router.get("/status", (req, res) => {
   }
 });
 
-/* ---------------- CASH OUT ---------------- */
+// ---------------- CASH OUT ----------------
 router.post("/cashout", json, async (req, res) => {
   const db = req.app.locals.db;
   if (!db) {
@@ -169,20 +161,21 @@ router.post("/cashout", json, async (req, res) => {
     return res.status(401).json({ error: "You must be logged in to cash out" });
   }
 
-  // Rate-limit quick repeated cashouts
   const last = cashoutTimestamps.get(user.id) || 0;
   if (Date.now() - last < CASHOUT_MIN_INTERVAL_MS) {
-    // record attempt for telemetry then return
     cashoutTimestamps.set(user.id, Date.now());
     pruneCashoutMapByAge();
     return res.status(429).json({ error: "Too many cashout attempts; slow down" });
   }
-  // mark attempt time (prevents tiny race loops)
   cashoutTimestamps.set(user.id, Date.now());
   pruneCashoutMapByAge();
 
+  const status = getRoundStatus();
+  if (!status || status.status !== "running") {
+    return res.status(400).json({ error: "No active running round" });
+  }
+
   try {
-    // Entire cashout flow happens inside a DB transaction to keep consistent
     const result = await runTransaction(db, async (client) => {
       const betRes = await client.query(
         `SELECT id, round_id, user_id, bet_amount, status
@@ -200,7 +193,6 @@ router.post("/cashout", json, async (req, res) => {
 
       const bet = betRes.rows[0];
 
-      // Call engine to compute payout / mark cashed
       let engineResult;
       try {
         engineResult = engineCashOut(user.id);
@@ -216,6 +208,8 @@ router.post("/cashout", json, async (req, res) => {
           `UPDATE bets SET status = 'lost', payout = $1, updatedat = NOW() WHERE id = $2`,
           [0, bet.id]
         );
+        // record metrics for cashout attempt (payout 0)
+        try { metrics.incrementCashout(0); } catch (e) { logger.warn('metrics.incrementCashout_failed_loss', { message: e && e.message ? e.message : String(e) }); }
         return { success: false, payout: 0, multiplier: engineResult.multiplier, balance: null };
       }
 
@@ -236,10 +230,12 @@ router.post("/cashout", json, async (req, res) => {
         [payout, bet.id]
       );
 
+      // record metrics for successful cashout
+      try { metrics.incrementCashout(payout); } catch (e) { logger.warn('metrics.incrementCashout_failed_win', { message: e && e.message ? e.message : String(e) }); }
+
       return { success: true, payout, multiplier: engineResult.multiplier, balance: Number(updateUser.rows[0].balance) };
     });
 
-    // update rate limiter to now (already set)
     cashoutTimestamps.set(user.id, Date.now());
     pruneCashoutMapByAge();
 
@@ -255,18 +251,12 @@ router.post("/cashout", json, async (req, res) => {
   }
 });
 
-/* ================= CLEANUP EXPORTS ================= */
-
-/**
- * cleanup()
- * Clear module-level timers/intervals so shutdown is clean. Safe to call multiple times.
- */
+/* CLEANUP */
 function cleanup() {
   try {
     if (typeof pruneInterval !== 'undefined' && pruneInterval) {
       clearInterval(pruneInterval);
     }
-    // Also clear the in-memory map to free memory
     try { cashoutTimestamps.clear(); } catch (e) {}
     logger.info('game.routes.cleanup_completed');
   } catch (e) {
@@ -274,6 +264,5 @@ function cleanup() {
   }
 }
 
-// Export router and cleanup helper
 module.exports = router;
 module.exports.cleanup = cleanup;

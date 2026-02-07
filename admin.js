@@ -1,8 +1,8 @@
 const express = require("express");
-const path = require("path");
 const router = express.Router();
 const logger = require("./logger");
 const { sendError } = require("./apiResponses");
+const { runTransaction } = require("./dbHelper");
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-this-admin-token"; // set a strong value in Render env
 
@@ -15,15 +15,14 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+/* ----------------- Admin: DB init (keeps previous behavior) ----------------- */
 // One-time admin endpoint: create required tables (safe: uses IF NOT EXISTS)
-// Add this block near the other admin routes. Remove it after you ran it successfully.
 router.post("/init-db", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   if (!db || typeof db.query !== "function") {
     return sendError(res, 500, "Database not initialized on server");
   }
 
-  // Create users table (if not present) and bets table and rounds table
   const createUsersTable = `
     CREATE TABLE IF NOT EXISTS users (
       id UUID PRIMARY KEY,
@@ -74,31 +73,167 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     await db.query(createRoundsTable);
     return res.json({ ok: true, message: "users + bets + rounds tables created (if not already existed)" });
   } catch (err) {
-    logger.error("Init DB error:", { message: err && err.message ? err.message : String(err), stack: err && err.stack ? err.stack : undefined });
-    return sendError(res, 500, "Init DB failed", err.message);
+    logger.error("admin.init_db.error", { message: err && err.message ? err.message : String(err) });
+    return sendError(res, 500, "Init DB failed", err && err.message ? err.message : undefined);
   }
 });
 
-// GET /api/admin/users -> list all users (no password_hash)
-router.get("/users", requireAdmin, async (req, res) => {
+/* ----------------- Admin: list rounds (paginated) ----------------- */
+/**
+ * GET /api/admin/rounds?limit=50&offset=0
+ */
+router.get("/rounds", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   try {
-    const result = await db.query(
-      `SELECT id, username, phone, balance, freerounds, createdat, updatedat
-       FROM users
-       ORDER BY createdat DESC`
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const q = await db.query(
+      `SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta, createdat
+       FROM rounds
+       ORDER BY started_at DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
     );
-    return res.json({ users: result.rows || [] });
+    return res.json({ rounds: q.rows || [] });
   } catch (err) {
-    logger.error("Admin list users error:", { message: err && err.message ? err.message : String(err) });
+    logger.error("admin.rounds.list.error", { message: err && err.message ? err.message : String(err) });
     return sendError(res, 500, "Server error");
   }
 });
 
-// GET /api/admin/export-db -> optional: if you still want to download the SQLite file
-// Not useful with Postgres unless you export manually. You can leave this out.
-router.get("/export-db", requireAdmin, (req, res) => {
-  return sendError(res, 501, "Postgres export not supported via API");
+/* ----------------- Admin: round details ----------------- */
+/**
+ * GET /api/admin/rounds/:roundId
+ */
+router.get("/rounds/:roundId", requireAdmin, async (req, res) => {
+  const db = req.app.locals.db;
+  const roundId = req.params.roundId;
+  if (!roundId) return sendError(res, 400, "roundId required");
+
+  try {
+    const r = await db.query(`SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta, createdat FROM rounds WHERE round_id = $1`, [roundId]);
+    if (!r.rowCount) return sendError(res, 404, "Round not found");
+
+    const bets = await db.query(`SELECT id, user_id, bet_amount, payout, status, meta, createdat, updatedat FROM bets WHERE round_id = $1 ORDER BY createdat ASC`, [roundId]);
+
+    return res.json({ round: r.rows[0], bets: bets.rows || [] });
+  } catch (err) {
+    logger.error("admin.rounds.detail.error", { message: err && err.message ? err.message : String(err) });
+    return sendError(res, 500, "Server error");
+  }
+});
+
+/* ----------------- Admin: list bets (filterable) ----------------- */
+/**
+ * GET /api/admin/bets?userId=&roundId=&status=&limit=
+ */
+router.get("/bets", requireAdmin, async (req, res) => {
+  const db = req.app.locals.db;
+  try {
+    const params = [];
+    const where = [];
+    if (req.query.userId) { params.push(req.query.userId); where.push(`user_id = $${params.length}`); }
+    if (req.query.roundId) { params.push(req.query.roundId); where.push(`round_id = $${params.length}`); }
+    if (req.query.status)  { params.push(req.query.status); where.push(`status = $${params.length}`); }
+
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+    params.push(limit);
+
+    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const q = await db.query(
+      `SELECT id, round_id, user_id, bet_amount, payout, status, meta, createdat, updatedat
+       FROM bets
+       ${whereClause}
+       ORDER BY createdat DESC
+       LIMIT $${params.length}`,
+       params
+    );
+    return res.json({ bets: q.rows || [] });
+  } catch (err) {
+    logger.error("admin.bets.list.error", { message: err && err.message ? err.message : String(err) });
+    return sendError(res, 500, "Server error");
+  }
+});
+
+/* ----------------- Admin: refund a bet ----------------- */
+/**
+ * POST /api/admin/bets/:betId/refund
+ *
+ * Idempotent: if already refunded, returns success.
+ * Will NOT refund bets with status 'cashed' (admin reversal of cashed payouts requires a different workflow).
+ */
+router.post("/bets/:betId/refund", requireAdmin, async (req, res) => {
+  const db = req.app.locals.db;
+  const betId = req.params.betId;
+  if (!betId) return sendError(res, 400, "betId required");
+
+  try {
+    const result = await runTransaction(db, async (client) => {
+      // Lock bet row
+      const br = await client.query(`SELECT id, user_id, bet_amount, payout, status FROM bets WHERE id = $1 FOR UPDATE`, [betId]);
+      if (!br.rowCount) {
+        const e = new Error("Bet not found");
+        e.status = 404;
+        throw e;
+      }
+      const bet = br.rows[0];
+
+      // If already refunded, return info
+      if (bet.status === 'refunded') {
+        return { alreadyRefunded: true, betId: bet.id };
+      }
+
+      if (bet.status === 'cashed') {
+        const e = new Error("Cannot refund a cashed bet via this endpoint");
+        e.status = 400;
+        throw e;
+      }
+
+      // Otherwise perform refund: mark bet refunded and credit user (if any)
+      await client.query(`UPDATE bets SET status = 'refunded', updatedat = NOW() WHERE id = $1`, [betId]);
+
+      if (bet.user_id && Number(bet.bet_amount) > 0) {
+        await client.query(`UPDATE users SET balance = balance + $1, updatedat = NOW() WHERE id = $2`, [bet.bet_amount, bet.user_id]);
+      }
+
+      // Return audit info
+      return { betId: bet.id, refundedAmount: Number(bet.bet_amount || 0), userId: bet.user_id };
+    });
+
+    // Log admin action
+    if (result.alreadyRefunded) {
+      logger.info('admin.bet.refund.noop', { betId });
+      return res.json({ ok: true, message: "Bet already refunded", betId });
+    }
+
+    logger.info('admin.bet.refund.success', { betId: result.betId, refundedAmount: result.refundedAmount, userId: result.userId, admin: req.get('x-admin-token') ? 'provided' : 'none' });
+
+    return res.json({ ok: true, betId: result.betId, refundedAmount: result.refundedAmount, userId: result.userId });
+  } catch (err) {
+    if (err && err.status) return sendError(res, err.status, err.message);
+    logger.error("admin.bet.refund.error", { message: err && err.message ? err.message : String(err) });
+    return sendError(res, 500, "Server error");
+  }
+});
+
+/* ----------------- Admin: mark bet refunded (force) ----------------- */
+/**
+ * POST /api/admin/bets/:betId/mark-refunded
+ * Use when you want to mark a bet refunded without crediting user balance (audit only).
+ */
+router.post("/bets/:betId/mark-refunded", requireAdmin, async (req, res) => {
+  const db = req.app.locals.db;
+  const betId = req.params.betId;
+  if (!betId) return sendError(res, 400, "betId required");
+
+  try {
+    await db.query(`UPDATE bets SET status = 'refunded', updatedat = NOW() WHERE id = $1`, [betId]);
+    logger.info('admin.bet.mark_refunded', { betId });
+    return res.json({ ok: true, betId });
+  } catch (err) {
+    logger.error("admin.bet.mark_refunded.error", { message: err && err.message ? err.message : String(err) });
+    return sendError(res, 500, "Server error");
+  }
 });
 
 module.exports = router;

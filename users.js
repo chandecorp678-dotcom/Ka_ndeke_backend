@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
 const logger = require("./logger");
 const { sendError, sendSuccess, wrapAsync } = require("./apiResponses");
+const metrics = require("./metrics");
 
 const JWT_SECRET = process.env.JWT_SECRET || "change-this-secret"; // secure secret in Render env
 
@@ -207,5 +208,22 @@ router.get("/game/rounds/:roundId", wrapAsync(async (req, res) => {
     return sendError(res, 500, "Server error");
   }
 }));
+
+// ----------------- Public aggregated metrics endpoint -----------------
+router.get("/metrics/public", async (req, res) => {
+  try {
+    const m = metrics.getMetrics();
+    return res.json({
+      totalBets: m.totalBets,
+      totalVolume: m.totalVolume,
+      totalCashouts: m.totalCashouts,
+      totalPayouts: m.totalPayouts,
+      lastUpdated: m.lastUpdated
+    });
+  } catch (err) {
+    logger.error("public.metrics.error", { message: err && err.message ? err.message : String(err) });
+    return res.status(500).json({ error: "Server error" });
+  }
+});
 
 module.exports = router;

@@ -3,6 +3,7 @@ const router = express.Router();
 const logger = require("./logger");
 const { sendError } = require("./apiResponses");
 const { runTransaction } = require("./dbHelper");
+const metrics = require("./metrics");
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-this-admin-token"; // set a strong value in Render env
 
@@ -15,7 +16,7 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-/* ----------------- Admin: DB init (keeps previous behavior) ----------------- */
+/* ----------------- Admin: DB init (idempotent) ----------------- */
 // One-time admin endpoint: create required tables (safe: uses IF NOT EXISTS)
 router.post("/init-db", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
@@ -75,6 +76,21 @@ router.post("/init-db", requireAdmin, async (req, res) => {
   } catch (err) {
     logger.error("admin.init_db.error", { message: err && err.message ? err.message : String(err) });
     return sendError(res, 500, "Init DB failed", err && err.message ? err.message : undefined);
+  }
+});
+
+/* ----------------- Admin: metrics ----------------- */
+/**
+ * GET /api/admin/metrics
+ * Returns aggregated in-memory metrics (admin-only).
+ */
+router.get("/metrics", requireAdmin, async (req, res) => {
+  try {
+    const m = metrics.getMetrics();
+    return res.json({ ok: true, metrics: m });
+  } catch (err) {
+    logger.error("admin.metrics.error", { message: err && err.message ? err.message : String(err) });
+    return sendError(res, 500, "Server error");
   }
 });
 

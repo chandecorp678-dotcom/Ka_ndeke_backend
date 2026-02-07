@@ -5,6 +5,9 @@ const { sendError } = require("./apiResponses");
 const { runTransaction } = require("./dbHelper");
 const metrics = require("./metrics");
 
+// Log on require so we can tell from logs that admin routes were loaded
+logger.info("admin.routes.load_attempt", { ts: new Date().toISOString() });
+
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-this-admin-token"; // set a strong value in Render env
 
 // Middleware to require admin token in header "x-admin-token"
@@ -72,6 +75,7 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     await db.query(createUsersTable);
     await db.query(createBetsTable);
     await db.query(createRoundsTable);
+    logger.info("admin.init_db.completed");
     return res.json({ ok: true, message: "users + bets + rounds tables created (if not already existed)" });
   } catch (err) {
     logger.error("admin.init_db.error", { message: err && err.message ? err.message : String(err) });
@@ -80,10 +84,6 @@ router.post("/init-db", requireAdmin, async (req, res) => {
 });
 
 /* ----------------- Admin: metrics ----------------- */
-/**
- * GET /api/admin/metrics
- * Returns aggregated in-memory metrics (admin-only).
- */
 router.get("/metrics", requireAdmin, async (req, res) => {
   try {
     const m = metrics.getMetrics();
@@ -95,9 +95,6 @@ router.get("/metrics", requireAdmin, async (req, res) => {
 });
 
 /* ----------------- Admin: list rounds (paginated) ----------------- */
-/**
- * GET /api/admin/rounds?limit=50&offset=0
- */
 router.get("/rounds", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   try {
@@ -118,9 +115,6 @@ router.get("/rounds", requireAdmin, async (req, res) => {
 });
 
 /* ----------------- Admin: round details ----------------- */
-/**
- * GET /api/admin/rounds/:roundId
- */
 router.get("/rounds/:roundId", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   const roundId = req.params.roundId;
@@ -140,9 +134,6 @@ router.get("/rounds/:roundId", requireAdmin, async (req, res) => {
 });
 
 /* ----------------- Admin: list bets (filterable) ----------------- */
-/**
- * GET /api/admin/bets?userId=&roundId=&status=&limit=
- */
 router.get("/bets", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   try {
@@ -172,12 +163,6 @@ router.get("/bets", requireAdmin, async (req, res) => {
 });
 
 /* ----------------- Admin: refund a bet ----------------- */
-/**
- * POST /api/admin/bets/:betId/refund
- *
- * Idempotent: if already refunded, returns success.
- * Will NOT refund bets with status 'cashed' (admin reversal of cashed payouts requires a different workflow).
- */
 router.post("/bets/:betId/refund", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   const betId = req.params.betId;
@@ -185,7 +170,6 @@ router.post("/bets/:betId/refund", requireAdmin, async (req, res) => {
 
   try {
     const result = await runTransaction(db, async (client) => {
-      // Lock bet row
       const br = await client.query(`SELECT id, user_id, bet_amount, payout, status FROM bets WHERE id = $1 FOR UPDATE`, [betId]);
       if (!br.rowCount) {
         const e = new Error("Bet not found");
@@ -194,7 +178,6 @@ router.post("/bets/:betId/refund", requireAdmin, async (req, res) => {
       }
       const bet = br.rows[0];
 
-      // If already refunded, return info
       if (bet.status === 'refunded') {
         return { alreadyRefunded: true, betId: bet.id };
       }
@@ -205,18 +188,15 @@ router.post("/bets/:betId/refund", requireAdmin, async (req, res) => {
         throw e;
       }
 
-      // Otherwise perform refund: mark bet refunded and credit user (if any)
       await client.query(`UPDATE bets SET status = 'refunded', updatedat = NOW() WHERE id = $1`, [betId]);
 
       if (bet.user_id && Number(bet.bet_amount) > 0) {
         await client.query(`UPDATE users SET balance = balance + $1, updatedat = NOW() WHERE id = $2`, [bet.bet_amount, bet.user_id]);
       }
 
-      // Return audit info
       return { betId: bet.id, refundedAmount: Number(bet.bet_amount || 0), userId: bet.user_id };
     });
 
-    // Log admin action
     if (result.alreadyRefunded) {
       logger.info('admin.bet.refund.noop', { betId });
       return res.json({ ok: true, message: "Bet already refunded", betId });
@@ -233,10 +213,6 @@ router.post("/bets/:betId/refund", requireAdmin, async (req, res) => {
 });
 
 /* ----------------- Admin: mark bet refunded (force) ----------------- */
-/**
- * POST /api/admin/bets/:betId/mark-refunded
- * Use when you want to mark a bet refunded without crediting user balance (audit only).
- */
 router.post("/bets/:betId/mark-refunded", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   const betId = req.params.betId;
@@ -251,5 +227,8 @@ router.post("/bets/:betId/mark-refunded", requireAdmin, async (req, res) => {
     return sendError(res, 500, "Server error");
   }
 });
+
+// Final log to confirm admin routes loaded successfully
+logger.info("admin.routes.loaded", { ts: new Date().toISOString() });
 
 module.exports = router;

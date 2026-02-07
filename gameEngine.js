@@ -1,5 +1,6 @@
 'use strict';
 const crypto = require('crypto');
+const EventEmitter = require('events');
 const logger = require('./logger');
 
 /* ========================================================= GLOBAL ROUND STATE =========================================================
@@ -7,8 +8,11 @@ const logger = require('./logger');
    - starts a new server-controlled round
    - auto-crashes after server-determined crash point
    - schedules next round after crash
-   - exposes getRoundStatus, joinRound, cashOut, dispose
+   - emits events: 'roundStarted' and 'roundCrashed' for external persistence
    ============================================================================================================================ */
+
+class GameEngineEmitter extends EventEmitter {}
+const emitter = new GameEngineEmitter();
 
 let currentRound = null;
 let disposed = false;
@@ -59,13 +63,26 @@ function markRoundCrashed(round, reason = 'auto') {
   round.locked = true;
   round.endedAt = Date.now();
 
-  // Clear auto-crash timer (if set)
   if (round.timer) {
     try { clearTimeout(round.timer); } catch (e) {}
     round.timer = null;
   }
 
   logger.info('game.round.crashed', { roundId: round.roundId, reason, crashPoint: round.crashPoint });
+
+  // emit event for persistence (provide startedAt as ms and endedAt ms)
+  try {
+    emitter.emit('roundCrashed', {
+      roundId: round.roundId,
+      crashPoint: round.crashPoint,
+      serverSeedHash: round.serverSeedHash,
+      startedAt: round.startedAt,
+      endedAt: round.endedAt,
+      meta: round.meta || {}
+    });
+  } catch (e) {
+    logger.warn('gameEngine.emit.roundCrashed_failed', { message: e && e.message ? e.message : String(e) });
+  }
 
   // Schedule next round start after 5 seconds (avoid double-scheduling)
   if (!round.nextRoundTimer && !disposed) {
@@ -83,7 +100,6 @@ function markRoundCrashed(round, reason = 'auto') {
         logger.error('game.round.schedule_next_error', { message: e && e.message ? e.message : String(e) });
       }
     }, 5000);
-    // Do not keep the process alive just for this timer
     if (typeof t.unref === 'function') t.unref();
     round.nextRoundTimer = t;
   }
@@ -99,7 +115,6 @@ function createNewRound() {
     return null;
   }
 
-  // Clear prior round timers to avoid leaks
   if (currentRound) {
     try {
       if (currentRound.timer) {
@@ -126,7 +141,7 @@ function createNewRound() {
   currentRound = {
     roundId,
     crashPoint,
-    serverSeed,       // will be nulled on dispose
+    serverSeed,
     serverSeedHash,
     status: 'running',
     startedAt: Date.now(),
@@ -134,7 +149,8 @@ function createNewRound() {
     locked: false,
     players: new Map(),
     timer: null,
-    nextRoundTimer: null
+    nextRoundTimer: null,
+    meta: {}
   };
 
   // Auto-crash after computed delay
@@ -147,8 +163,20 @@ function createNewRound() {
   if (typeof t.unref === 'function') t.unref();
   currentRound.timer = t;
 
-  // Log start (do not log raw serverSeed)
-  logger.info('game.round.started', { roundId: currentRound.roundId, crashPoint: currentRound.crashPoint, startedAt: currentRound.startedAt, serverSeedHash });
+  logger.info('game.round.started', { roundId: currentRound.roundId, crashPoint: currentRound.crashPoint, startedAt: currentRound.startedAt });
+
+  // emit event for persistence
+  try {
+    emitter.emit('roundStarted', {
+      roundId: currentRound.roundId,
+      serverSeedHash: currentRound.serverSeedHash,
+      crashPoint: currentRound.crashPoint,
+      startedAt: currentRound.startedAt,
+      meta: currentRound.meta || {}
+    });
+  } catch (e) {
+    logger.warn('gameEngine.emit.roundStarted_failed', { message: e && e.message ? e.message : String(e) });
+  }
 
   return currentRound;
 }
@@ -305,5 +333,6 @@ module.exports = {
   getRoundStatus,
   joinRound,
   cashOut,
-  dispose
+  dispose,
+  emitter
 };

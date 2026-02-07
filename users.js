@@ -125,13 +125,12 @@ router.get("/users/me", requireAuth, (req, res) => {
   return res.json(req.user);
 });
 
-// Extracted handler for changing balance — now atomic update to avoid race conditions
+// Extracted handler for changing balance — atomic update
 const changeBalanceHandler = wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   const delta = Number(req.body?.delta);
   if (isNaN(delta)) return sendError(res, 400, "delta must be a number");
 
-  // Perform atomic update: ensure balance never goes negative and return the new row
   try {
     const rowRes = await db.query(
       `UPDATE users
@@ -152,24 +151,61 @@ const changeBalanceHandler = wrapAsync(async (req, res) => {
   }
 });
 
-// Route uses the extracted handler
 router.post("/users/balance/change", requireAuth, express.json(), changeBalanceHandler);
 
-// Deposit route
 router.post("/users/deposit", requireAuth, express.json(), wrapAsync(async (req, res) => {
   const amount = Number(req.body?.amount);
   if (isNaN(amount) || amount <= 0) return sendError(res, 400, "amount must be > 0");
-  // reuse the balance handler by adjusting req.body
   req.body = { delta: amount };
   return changeBalanceHandler(req, res);
 }));
 
-// Withdraw route
 router.post("/users/withdraw", requireAuth, express.json(), wrapAsync(async (req, res) => {
   const amount = Number(req.body?.amount);
   if (isNaN(amount) || amount <= 0) return sendError(res, 400, "amount must be > 0");
   req.body = { delta: -Math.abs(amount) };
   return changeBalanceHandler(req, res);
+}));
+
+// ----------------- Public game history endpoints -----------------
+
+// GET /api/game/history?limit=50
+router.get("/game/history", wrapAsync(async (req, res) => {
+  const db = req.app.locals.db;
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+
+  try {
+    const rows = await db.query(
+      `SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta
+       FROM rounds
+       ORDER BY started_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    return res.json({ rounds: rows.rows || [] });
+  } catch (err) {
+    logger.error("game.history.error", { message: err && err.message ? err.message : String(err) });
+    return sendError(res, 500, "Server error");
+  }
+}));
+
+// GET /api/game/rounds/:roundId -> details + bets
+router.get("/game/rounds/:roundId", wrapAsync(async (req, res) => {
+  const db = req.app.locals.db;
+  const roundId = req.params.roundId;
+  if (!roundId) return sendError(res, 400, "roundId required");
+
+  try {
+    const r = await db.query(`SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta FROM rounds WHERE round_id = $1`, [roundId]);
+    if (!r.rowCount) return sendError(res, 404, "Round not found");
+
+    const bets = await db.query(`SELECT id, user_id, bet_amount, payout, status, meta, createdat FROM bets WHERE round_id = $1`, [roundId]);
+
+    return res.json({ round: r.rows[0], bets: bets.rows || [] });
+  } catch (err) {
+    logger.error("game.round.detail.error", { message: err && err.message ? err.message : String(err) });
+    return sendError(res, 500, "Server error");
+  }
 }));
 
 module.exports = router;

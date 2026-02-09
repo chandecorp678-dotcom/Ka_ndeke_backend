@@ -12,6 +12,9 @@ function sendError(res, status = 500, message = 'Server error', detail) {
 
   const body = { error: message };
 
+  // Phase 9.1: Include error code for client-side handling
+  body.errorCode = status;
+
   // Only include a 'detail' field when not in production to avoid leaking internals
   if (detail && process.env.NODE_ENV !== 'production') {
     body.detail = typeof detail === 'string' ? detail : JSON.stringify(detail);

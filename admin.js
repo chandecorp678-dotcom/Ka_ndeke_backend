@@ -54,18 +54,13 @@ router.post("/init-db", requireAdmin, async (req, res) => {
       user_id UUID,
       bet_amount NUMERIC(18,2) NOT NULL,
       payout NUMERIC(18,2),
-      status TEXT NOT NULL DEFAULT 'active',  -- active, cashed, lost, refunded, claimed
+      status TEXT NOT NULL DEFAULT 'active',
       bet_placed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       claimed_at TIMESTAMPTZ,
       meta JSONB DEFAULT '{}'::jsonb,
       createdat TIMESTAMPTZ NOT NULL,
       updatedat TIMESTAMPTZ NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_bets_user_id ON bets (user_id);
-    CREATE INDEX IF NOT EXISTS idx_bets_round_id ON bets (round_id);
-    CREATE INDEX IF NOT EXISTS idx_bets_createdat ON bets (createdat DESC);
-    CREATE INDEX IF NOT EXISTS idx_bets_claimed_at ON bets (claimed_at DESC);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_bets_user_round ON bets (user_id, round_id) WHERE status = 'active';
   `;
 
   // Rounds table (with columns for revealed seed, commit index, and settlement window)
@@ -85,9 +80,6 @@ router.post("/init-db", requireAdmin, async (req, res) => {
       meta JSONB DEFAULT '{}'::jsonb,
       createdat TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    CREATE INDEX IF NOT EXISTS idx_rounds_round_id ON rounds (round_id);
-    CREATE INDEX IF NOT EXISTS idx_rounds_started_at ON rounds (started_at);
-    CREATE INDEX IF NOT EXISTS idx_rounds_settlement_closed_at ON rounds (settlement_closed_at);
   `;
 
   // Seed commits table: stores pre-committed seed hashes and their sequential index.
@@ -98,16 +90,34 @@ router.post("/init-db", requireAdmin, async (req, res) => {
       seed_hash TEXT UNIQUE NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    CREATE INDEX IF NOT EXISTS idx_seed_commits_idx ON seed_commits (idx DESC);
   `;
 
   try {
+    // Create tables
     await db.query(createUsersTable);
     await db.query(createBetsTable);
     await db.query(createRoundsTable);
     await db.query(createSeedCommitsTable);
 
-    // Ensure columns exist if tables pre-existed without them (safe ALTER)
+    // Create indexes for users
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_users_phone ON users (phone)`);
+
+    // Create indexes for bets
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_bets_user_id ON bets (user_id)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_bets_round_id ON bets (round_id)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_bets_createdat ON bets (createdat DESC)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_bets_claimed_at ON bets (claimed_at DESC)`);
+    await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_bets_user_round ON bets (user_id, round_id) WHERE status = 'active'`);
+
+    // Create indexes for rounds
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_rounds_round_id ON rounds (round_id)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_rounds_started_at ON rounds (started_at DESC)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_rounds_settlement_closed_at ON rounds (settlement_closed_at)`);
+
+    // Create indexes for seed_commits
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_seed_commits_idx ON seed_commits (idx DESC)`);
+
+    // Add columns to existing tables if they don't exist (safe ALTER)
     await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS server_seed TEXT`);
     await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS server_seed_revealed_at TIMESTAMPTZ`);
     await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS commit_idx BIGINT`);
@@ -116,12 +126,8 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     await db.query(`ALTER TABLE bets ADD COLUMN IF NOT EXISTS bet_placed_at TIMESTAMPTZ DEFAULT NOW()`);
     await db.query(`ALTER TABLE bets ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ`);
 
-    // Ensure indexes exist
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_bets_claimed_at ON bets (claimed_at DESC)`);
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_rounds_settlement_closed_at ON rounds (settlement_closed_at)`);
-
     logger.info("admin.init_db.completed");
-    return res.json({ ok: true, message: "users + bets + rounds + seed_commits tables and indexes created (if not existed)" });
+    return res.json({ ok: true, message: "All tables and indexes created/updated successfully" });
   } catch (err) {
     logger.error("admin.init_db.error", { message: err && err.message ? err.message : String(err) });
     return sendError(res, 500, "Init DB failed", err && err.message ? err.message : undefined);

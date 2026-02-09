@@ -46,7 +46,7 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     );
   `;
 
-  // Bets table (with indexes and unique constraint for Phase 9.1)
+  // Bets table (with indexes and unique constraint for Phase 9.1, timestamps for Phase 9.2A)
   const createBetsTable = `
     CREATE TABLE IF NOT EXISTS bets (
       id UUID PRIMARY KEY,
@@ -54,7 +54,9 @@ router.post("/init-db", requireAdmin, async (req, res) => {
       user_id UUID,
       bet_amount NUMERIC(18,2) NOT NULL,
       payout NUMERIC(18,2),
-      status TEXT NOT NULL DEFAULT 'active',  -- active, cashed, lost, refunded
+      status TEXT NOT NULL DEFAULT 'active',  -- active, cashed, lost, refunded, claimed
+      bet_placed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      claimed_at TIMESTAMPTZ,
       meta JSONB DEFAULT '{}'::jsonb,
       createdat TIMESTAMPTZ NOT NULL,
       updatedat TIMESTAMPTZ NOT NULL
@@ -62,10 +64,11 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     CREATE INDEX IF NOT EXISTS idx_bets_user_id ON bets (user_id);
     CREATE INDEX IF NOT EXISTS idx_bets_round_id ON bets (round_id);
     CREATE INDEX IF NOT EXISTS idx_bets_createdat ON bets (createdat DESC);
+    CREATE INDEX IF NOT EXISTS idx_bets_claimed_at ON bets (claimed_at DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_bets_user_round ON bets (user_id, round_id) WHERE status = 'active';
   `;
 
-  // Rounds table (with columns for revealed seed and commit index)
+  // Rounds table (with columns for revealed seed, commit index, and settlement window)
   const createRoundsTable = `
     CREATE TABLE IF NOT EXISTS rounds (
       id UUID PRIMARY KEY,
@@ -77,11 +80,14 @@ router.post("/init-db", requireAdmin, async (req, res) => {
       server_seed_revealed_at TIMESTAMPTZ,
       started_at TIMESTAMPTZ NOT NULL,
       ended_at TIMESTAMPTZ,
+      settlement_window_seconds INTEGER DEFAULT 300,
+      settlement_closed_at TIMESTAMPTZ,
       meta JSONB DEFAULT '{}'::jsonb,
       createdat TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_rounds_round_id ON rounds (round_id);
     CREATE INDEX IF NOT EXISTS idx_rounds_started_at ON rounds (started_at);
+    CREATE INDEX IF NOT EXISTS idx_rounds_settlement_closed_at ON rounds (settlement_closed_at);
   `;
 
   // Seed commits table: stores pre-committed seed hashes and their sequential index.
@@ -101,10 +107,18 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     await db.query(createRoundsTable);
     await db.query(createSeedCommitsTable);
 
-    // Ensure columns exist if rounds table pre-existed without them (safe ALTER)
+    // Ensure columns exist if tables pre-existed without them (safe ALTER)
     await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS server_seed TEXT`);
     await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS server_seed_revealed_at TIMESTAMPTZ`);
     await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS commit_idx BIGINT`);
+    await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS settlement_window_seconds INTEGER DEFAULT 300`);
+    await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS settlement_closed_at TIMESTAMPTZ`);
+    await db.query(`ALTER TABLE bets ADD COLUMN IF NOT EXISTS bet_placed_at TIMESTAMPTZ DEFAULT NOW()`);
+    await db.query(`ALTER TABLE bets ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ`);
+
+    // Ensure indexes exist
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_bets_claimed_at ON bets (claimed_at DESC)`);
+    await db.query(`CREATE INDEX IF NOT EXISTS idx_rounds_settlement_closed_at ON rounds (settlement_closed_at)`);
 
     logger.info("admin.init_db.completed");
     return res.json({ ok: true, message: "users + bets + rounds + seed_commits tables and indexes created (if not existed)" });
@@ -159,7 +173,7 @@ router.get("/rounds", requireAdmin, async (req, res) => {
     const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
     const offset = Math.max(0, Number(req.query.offset) || 0);
     const q = await db.query(
-      `SELECT round_id, crash_point, server_seed_hash, server_seed, commit_idx, server_seed_revealed_at, started_at, ended_at, meta, createdat
+      `SELECT round_id, crash_point, server_seed_hash, server_seed, commit_idx, server_seed_revealed_at, started_at, ended_at, settlement_closed_at, meta, createdat
        FROM rounds
        ORDER BY started_at DESC
        LIMIT $1 OFFSET $2`,
@@ -182,10 +196,10 @@ router.get("/rounds/:roundId", requireAdmin, async (req, res) => {
   if (!roundId) return sendError(res, 400, "roundId required");
 
   try {
-    const r = await db.query(`SELECT round_id, crash_point, server_seed_hash, server_seed, commit_idx, server_seed_revealed_at, started_at, ended_at, meta, createdat FROM rounds WHERE round_id = $1`, [roundId]);
+    const r = await db.query(`SELECT round_id, crash_point, server_seed_hash, server_seed, commit_idx, server_seed_revealed_at, started_at, ended_at, settlement_closed_at, meta, createdat FROM rounds WHERE round_id = $1`, [roundId]);
     if (!r.rowCount) return sendError(res, 404, "Round not found");
 
-    const bets = await db.query(`SELECT id, user_id, bet_amount, payout, status, meta, createdat, updatedat FROM bets WHERE round_id = $1 ORDER BY createdat ASC`, [roundId]);
+    const bets = await db.query(`SELECT id, user_id, bet_amount, payout, status, bet_placed_at, claimed_at, meta, createdat, updatedat FROM bets WHERE round_id = $1 ORDER BY createdat ASC`, [roundId]);
 
     return res.json({ round: r.rows[0], bets: bets.rows || [] });
   } catch (err) {
@@ -212,7 +226,7 @@ router.get("/bets", requireAdmin, async (req, res) => {
 
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const q = await db.query(
-      `SELECT id, round_id, user_id, bet_amount, payout, status, meta, createdat, updatedat
+      `SELECT id, round_id, user_id, bet_amount, payout, status, bet_placed_at, claimed_at, meta, createdat, updatedat
        FROM bets
        ${whereClause}
        ORDER BY createdat DESC

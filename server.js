@@ -14,6 +14,17 @@ const { sendError } = require("./apiResponses");
 
 const app = express();
 
+// Phase 9.1: Validate critical environment variables at startup
+function validateEnv() {
+  const required = ['JWT_SECRET', 'ADMIN_TOKEN', 'DATABASE_URL'];
+  const missing = required.filter(key => !process.env[key] || process.env[key] === `change-this-${key.toLowerCase()}`);
+  
+  if (missing.length > 0) {
+    logger.error('server.startup.env_validation_failed', { missing });
+    throw new Error(`Missing or default environment variables: ${missing.join(', ')}. Please set in Render environment.`);
+  }
+}
+
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 15000);
 const BROADCAST_INTERVAL_MS = Number(process.env.BROADCAST_INTERVAL_MS || 100); // default 100ms
 
@@ -211,6 +222,9 @@ function attachEngineListeners(db) {
 /* =================== Start sequence =================== */
 async function start() {
   try {
+    // Phase 9.1: Validate environment
+    validateEnv();
+
     await initDb();
     app.locals.db = pool;
 

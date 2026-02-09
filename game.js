@@ -27,9 +27,6 @@ const CASHOUT_PRUNE_INTERVAL_MS = Number(process.env.CASHOUT_PRUNE_INTERVAL_MS |
 const MIN_BET_AMOUNT = Number(process.env.MIN_BET_AMOUNT || 1);
 const MAX_BET_AMOUNT = Number(process.env.MAX_BET_AMOUNT || 1000000);
 
-// Phase 9.2A: Settlement window (seconds after crash before claims close)
-const SETTLEMENT_WINDOW_SECONDS = Number(process.env.SETTLEMENT_WINDOW_SECONDS || 300); // 5 minutes
-
 // Phase 9.2: Sanitize numeric input
 function sanitizeNumeric(value, min = 0, max = Infinity) {
   const num = Number(value);
@@ -86,32 +83,6 @@ router.post("/start", json, async (req, res) => {
 
   try {
     const txResult = await runTransaction(db, async (client) => {
-      // Phase 9.2A: Verify round is still running (anti-latency check)
-      const roundCheck = await client.query(
-        `SELECT id, started_at FROM rounds WHERE round_id = $1`,
-        [status.roundId]
-      );
-
-      if (!roundCheck.rowCount) {
-        const err = new Error('Round not found in database');
-        err.status = 400;
-        throw err;
-      }
-
-      const roundRecord = roundCheck.rows[0];
-      const roundStartMs = new Date(roundRecord.started_at).getTime();
-      const nowMs = Date.now();
-      const roundAgeMs = nowMs - roundStartMs;
-
-      // Phase 9.2A: If round is older than reasonable (e.g., > 5 min), reject bet
-      // This prevents betting on stale rounds due to network latency
-      const MAX_ROUND_AGE_MS = 300000; // 5 minutes
-      if (roundAgeMs > MAX_ROUND_AGE_MS) {
-        const err = new Error('Round is too old. Please start a new game.');
-        err.status = 400;
-        throw err;
-      }
-
       // Phase 9.1: Check if user already has active bet on this round
       const existingBetRes = await client.query(
         `SELECT id, status FROM bets
@@ -144,10 +115,9 @@ router.post("/start", json, async (req, res) => {
       }
 
       const betId = crypto.randomUUID();
-      // Phase 9.2A: Track bet placement time explicitly
       await client.query(
-        `INSERT INTO bets (id, round_id, user_id, bet_amount, status, bet_placed_at, createdat, updatedat)
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())`,
+        `INSERT INTO bets (id, round_id, user_id, bet_amount, status, createdat, updatedat)
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
          [betId, status.roundId, user.id, betAmount, "active"]
       );
 
@@ -246,34 +216,8 @@ router.post("/cashout", json, async (req, res) => {
 
   try {
     const result = await runTransaction(db, async (client) => {
-      // Phase 9.2A: Get current round and check settlement window
-      const roundCheck = await client.query(
-        `SELECT id, ended_at, settlement_closed_at FROM rounds WHERE round_id = $1`,
-        [getRoundStatus().roundId]
-      );
-
-      if (!roundCheck.rowCount) {
-        const e = new Error('Round not found');
-        e.status = 400;
-        throw e;
-      }
-
-      const roundRecord = roundCheck.rows[0];
-
-      // Phase 9.2A: Replay attack prevention – check settlement window
-      if (roundRecord.settlement_closed_at) {
-        const nowMs = Date.now();
-        const settlementClosedMs = new Date(roundRecord.settlement_closed_at).getTime();
-        if (nowMs > settlementClosedMs) {
-          const e = new Error('Settlement window for this round has closed. Claims no longer accepted.');
-          e.status = 400;
-          throw e;
-        }
-      }
-
-      // Get bet with lock
       const betRes = await client.query(
-        `SELECT id, round_id, user_id, bet_amount, status, payout, bet_placed_at
+        `SELECT id, round_id, user_id, bet_amount, status, payout
          FROM bets
          WHERE user_id = $1 AND round_id = $2
          FOR UPDATE`,
@@ -334,9 +278,8 @@ router.post("/cashout", json, async (req, res) => {
         throw e;
       }
 
-      // Phase 9.2A: Mark bet as claimed with timestamp
       await client.query(
-        `UPDATE bets SET status = 'cashed', payout = $1, claimed_at = NOW(), updatedat = NOW() WHERE id = $2`,
+        `UPDATE bets SET status = 'cashed', payout = $1, updatedat = NOW() WHERE id = $2`,
         [payout, bet.id]
       );
 

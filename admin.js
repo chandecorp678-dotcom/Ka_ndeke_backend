@@ -7,12 +7,12 @@ const { sendError } = require("./apiResponses");
 const { runTransaction } = require("./dbHelper");
 const metrics = require("./metrics");
 
-// Log on require so we can tell from logs that admin routes were loaded
+// Log on require
 logger.info("admin.routes.load_attempt", { ts: new Date().toISOString() });
 
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-this-admin-token"; // set a strong value in Render env
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-this-admin-token";
 
-// Middleware to require admin token in header "x-admin-token"
+// Middleware to require admin token
 function requireAdmin(req, res, next) {
   const t = req.get("x-admin-token") || "";
   if (!t || t !== ADMIN_TOKEN) {
@@ -21,124 +21,200 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-/* ----------------- Admin: DB init (idempotent) ----------------- */
-/**
- * Create tables if not present and ensure recommended indexes exist.
- * Safe to call multiple times.
- */
+/* =================== INIT DB (IMPROVED) =================== */
 router.post("/init-db", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   if (!db || typeof db.query !== "function") {
+    logger.error("admin.init_db.no_db_connection");
     return sendError(res, 500, "Database not initialized on server");
   }
 
-  // Users table
-  const createUsersTable = `
-    CREATE TABLE IF NOT EXISTS users (
-      id UUID PRIMARY KEY,
-      username TEXT NOT NULL,
-      phone TEXT UNIQUE NOT NULL,
-      password_hash TEXT,
-      balance NUMERIC(18,2) NOT NULL DEFAULT 0,
-      freerounds INTEGER NOT NULL DEFAULT 0,
-      createdat TIMESTAMPTZ NOT NULL,
-      updatedat TIMESTAMPTZ NOT NULL
-    );
-  `;
-
-  // Bets table (with indexes and unique constraint for Phase 9.1, timestamps for Phase 9.2A)
-  const createBetsTable = `
-    CREATE TABLE IF NOT EXISTS bets (
-      id UUID PRIMARY KEY,
-      round_id TEXT NOT NULL,
-      user_id UUID,
-      bet_amount NUMERIC(18,2) NOT NULL,
-      payout NUMERIC(18,2),
-      status TEXT NOT NULL DEFAULT 'active',
-      bet_placed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      claimed_at TIMESTAMPTZ,
-      meta JSONB DEFAULT '{}'::jsonb,
-      createdat TIMESTAMPTZ NOT NULL,
-      updatedat TIMESTAMPTZ NOT NULL
-    );
-  `;
-
-  // Rounds table (with columns for revealed seed, commit index, and settlement window)
-  const createRoundsTable = `
-    CREATE TABLE IF NOT EXISTS rounds (
-      id UUID PRIMARY KEY,
-      round_id TEXT UNIQUE NOT NULL,
-      crash_point NUMERIC(10,2),
-      server_seed_hash TEXT,
-      server_seed TEXT,
-      commit_idx BIGINT,
-      server_seed_revealed_at TIMESTAMPTZ,
-      started_at TIMESTAMPTZ NOT NULL,
-      ended_at TIMESTAMPTZ,
-      settlement_window_seconds INTEGER DEFAULT 300,
-      settlement_closed_at TIMESTAMPTZ,
-      meta JSONB DEFAULT '{}'::jsonb,
-      createdat TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `;
-
-  // Seed commits table: stores pre-committed seed hashes and their sequential index.
-  const createSeedCommitsTable = `
-    CREATE TABLE IF NOT EXISTS seed_commits (
-      id SERIAL PRIMARY KEY,
-      idx BIGINT UNIQUE NOT NULL,
-      seed_hash TEXT UNIQUE NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `;
-
   try {
-    // Create tables
-    await db.query(createUsersTable);
-    await db.query(createBetsTable);
-    await db.query(createRoundsTable);
-    await db.query(createSeedCommitsTable);
+    logger.info("admin.init_db.starting");
 
-    // Create indexes for users
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_users_phone ON users (phone)`);
+    // 1. Create users table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id UUID PRIMARY KEY,
+        username TEXT NOT NULL,
+        phone TEXT UNIQUE NOT NULL,
+        password_hash TEXT,
+        balance NUMERIC(18,2) NOT NULL DEFAULT 0,
+        freerounds INTEGER NOT NULL DEFAULT 0,
+        createdat TIMESTAMPTZ NOT NULL,
+        updatedat TIMESTAMPTZ NOT NULL
+      );
+    `);
+    logger.info("admin.init_db.users_table_created");
 
-    // Create indexes for bets
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_bets_user_id ON bets (user_id)`);
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_bets_round_id ON bets (round_id)`);
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_bets_createdat ON bets (createdat DESC)`);
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_bets_claimed_at ON bets (claimed_at DESC)`);
-    await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_bets_user_round ON bets (user_id, round_id) WHERE status = 'active'`);
+    // 2. Create rounds table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS rounds (
+        id UUID PRIMARY KEY,
+        round_id TEXT UNIQUE NOT NULL,
+        crash_point NUMERIC(10,2),
+        server_seed_hash TEXT,
+        server_seed TEXT,
+        commit_idx BIGINT,
+        server_seed_revealed_at TIMESTAMPTZ,
+        started_at TIMESTAMPTZ NOT NULL,
+        ended_at TIMESTAMPTZ,
+        settlement_window_seconds INTEGER DEFAULT 300,
+        settlement_closed_at TIMESTAMPTZ,
+        meta JSONB DEFAULT '{}'::jsonb,
+        createdat TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    logger.info("admin.init_db.rounds_table_created");
 
-    // Create indexes for rounds
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_rounds_round_id ON rounds (round_id)`);
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_rounds_started_at ON rounds (started_at DESC)`);
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_rounds_settlement_closed_at ON rounds (settlement_closed_at)`);
+    // 3. Create bets table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS bets (
+        id UUID PRIMARY KEY,
+        round_id TEXT NOT NULL,
+        user_id UUID,
+        bet_amount NUMERIC(18,2) NOT NULL,
+        payout NUMERIC(18,2),
+        status TEXT NOT NULL DEFAULT 'active',
+        bet_placed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        claimed_at TIMESTAMPTZ,
+        meta JSONB DEFAULT '{}'::jsonb,
+        createdat TIMESTAMPTZ NOT NULL,
+        updatedat TIMESTAMPTZ NOT NULL
+      );
+    `);
+    logger.info("admin.init_db.bets_table_created");
 
-    // Create indexes for seed_commits
-    await db.query(`CREATE INDEX IF NOT EXISTS idx_seed_commits_idx ON seed_commits (idx DESC)`);
+    // 4. Create seed_commits table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS seed_commits (
+        id SERIAL PRIMARY KEY,
+        idx BIGINT UNIQUE NOT NULL,
+        seed_hash TEXT UNIQUE NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    logger.info("admin.init_db.seed_commits_table_created");
 
-    // Add columns to existing tables if they don't exist (safe ALTER)
-    await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS server_seed TEXT`);
-    await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS server_seed_revealed_at TIMESTAMPTZ`);
-    await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS commit_idx BIGINT`);
-    await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS settlement_window_seconds INTEGER DEFAULT 300`);
-    await db.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS settlement_closed_at TIMESTAMPTZ`);
-    await db.query(`ALTER TABLE bets ADD COLUMN IF NOT EXISTS bet_placed_at TIMESTAMPTZ DEFAULT NOW()`);
-    await db.query(`ALTER TABLE bets ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ`);
+    // 5. Create payments table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS payments (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type TEXT NOT NULL CHECK (type IN ('deposit', 'withdraw')),
+        amount NUMERIC(18, 2) NOT NULL CHECK (amount > 0),
+        phone TEXT NOT NULL,
+        mtn_transaction_id TEXT UNIQUE NOT NULL,
+        external_id TEXT,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'expired')),
+        mtn_status TEXT,
+        error_reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    logger.info("admin.init_db.payments_table_created");
+
+    // 6. Create monitoring tables
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS monitoring_snapshots (
+        id UUID PRIMARY KEY,
+        rtp NUMERIC(5, 2) NOT NULL DEFAULT 95.00,
+        total_bets NUMERIC(18, 2) NOT NULL DEFAULT 0,
+        total_payouts NUMERIC(18, 2) NOT NULL DEFAULT 0,
+        active_rounds INTEGER NOT NULL DEFAULT 0,
+        pending_payments INTEGER NOT NULL DEFAULT 0,
+        user_count INTEGER NOT NULL DEFAULT 0,
+        anomalies_detected INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    logger.info("admin.init_db.monitoring_snapshots_table_created");
+
+    // 7. Create kill switch log
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS kill_switch_log (
+        id SERIAL PRIMARY KEY,
+        action TEXT NOT NULL CHECK (action IN ('pause', 'resume')),
+        target TEXT NOT NULL CHECK (target IN ('game_rounds', 'payments', 'all')),
+        reason TEXT,
+        activated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        activated_by TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    logger.info("admin.init_db.kill_switch_log_table_created");
+
+    // 8. Create legal compliance table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS legal_compliance (
+        user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        terms_accepted BOOLEAN NOT NULL DEFAULT false,
+        terms_accepted_at TIMESTAMPTZ,
+        terms_version VARCHAR(50) DEFAULT 'v1.0',
+        age_verified BOOLEAN NOT NULL DEFAULT false,
+        age_verified_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    logger.info("admin.init_db.legal_compliance_table_created");
+
+    // 9. Create self exclusion table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS self_exclusion (
+        user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        excluded_until TIMESTAMPTZ NOT NULL,
+        reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        cancelled_at TIMESTAMPTZ
+      );
+    `);
+    logger.info("admin.init_db.self_exclusion_table_created");
+
+    // 10. Create indexes
+    const indexes = [
+      `CREATE INDEX IF NOT EXISTS idx_users_phone ON users (phone)`,
+      `CREATE INDEX IF NOT EXISTS idx_bets_user_id ON bets (user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_bets_round_id ON bets (round_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_bets_createdat ON bets (createdat DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_bets_claimed_at ON bets (claimed_at DESC)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_bets_user_round ON bets (user_id, round_id) WHERE status = 'active'`,
+      `CREATE INDEX IF NOT EXISTS idx_rounds_round_id ON rounds (round_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_rounds_started_at ON rounds (started_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_rounds_settlement_closed_at ON rounds (settlement_closed_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_seed_commits_idx ON seed_commits (idx DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments (user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_payments_status ON payments (status)`,
+      `CREATE INDEX IF NOT EXISTS idx_payments_created_at ON payments (created_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_monitoring_snapshots_created_at ON monitoring_snapshots (created_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_kill_switch_log_activated_at ON kill_switch_log (activated_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_legal_compliance_user_id ON legal_compliance (user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_self_exclusion_excluded_until ON self_exclusion (excluded_until)`
+    ];
+
+    for (const indexQuery of indexes) {
+      await db.query(indexQuery);
+    }
+    logger.info("admin.init_db.indexes_created");
 
     logger.info("admin.init_db.completed");
-    return res.json({ ok: true, message: "All tables and indexes created/updated successfully" });
+    return res.json({ 
+      ok: true, 
+      message: "All tables and indexes created/updated successfully",
+      timestamp: new Date().toISOString()
+    });
+
   } catch (err) {
-    logger.error("admin.init_db.error", { message: err && err.message ? err.message : String(err) });
-    return sendError(res, 500, "Init DB failed", err && err.message ? err.message : undefined);
+    logger.error("admin.init_db.error", { 
+      message: err && err.message ? err.message : String(err),
+      stack: err && err.stack ? err.stack : undefined
+    });
+    return sendError(res, 500, "Init DB failed", err && err.message ? err.message : String(err));
   }
 });
 
-/* ----------------- Admin: metrics ----------------- */
-/**
- * GET /api/admin/metrics
- * Returns aggregated in-memory metrics (admin-only).
- */
+/* =================== METRICS =================== */
 router.get("/metrics", requireAdmin, async (req, res) => {
   try {
     const m = metrics.getMetrics();
@@ -149,11 +225,7 @@ router.get("/metrics", requireAdmin, async (req, res) => {
   }
 });
 
-/* ----------------- Admin: users list ----------------- */
-/**
- * GET /api/admin/users
- * List users without exposing password_hash.
- */
+/* =================== USERS LIST =================== */
 router.get("/users", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   try {
@@ -169,10 +241,7 @@ router.get("/users", requireAdmin, async (req, res) => {
   }
 });
 
-/* ----------------- Admin: list rounds (paginated) ----------------- */
-/**
- * GET /api/admin/rounds?limit=50&offset=0
- */
+/* =================== ROUNDS LIST =================== */
 router.get("/rounds", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   try {
@@ -192,20 +261,25 @@ router.get("/rounds", requireAdmin, async (req, res) => {
   }
 });
 
-/* ----------------- Admin: round details ----------------- */
-/**
- * GET /api/admin/rounds/:roundId
- */
+/* =================== ROUND DETAILS =================== */
 router.get("/rounds/:roundId", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   const roundId = req.params.roundId;
   if (!roundId) return sendError(res, 400, "roundId required");
 
   try {
-    const r = await db.query(`SELECT round_id, crash_point, server_seed_hash, server_seed, commit_idx, server_seed_revealed_at, started_at, ended_at, settlement_closed_at, meta, createdat FROM rounds WHERE round_id = $1`, [roundId]);
+    const r = await db.query(
+      `SELECT round_id, crash_point, server_seed_hash, server_seed, commit_idx, server_seed_revealed_at, started_at, ended_at, settlement_closed_at, meta, createdat 
+       FROM rounds WHERE round_id = $1`, 
+      [roundId]
+    );
     if (!r.rowCount) return sendError(res, 404, "Round not found");
 
-    const bets = await db.query(`SELECT id, user_id, bet_amount, payout, status, bet_placed_at, claimed_at, meta, createdat, updatedat FROM bets WHERE round_id = $1 ORDER BY createdat ASC`, [roundId]);
+    const bets = await db.query(
+      `SELECT id, user_id, bet_amount, payout, status, bet_placed_at, claimed_at, meta, createdat, updatedat 
+       FROM bets WHERE round_id = $1 ORDER BY createdat ASC`, 
+      [roundId]
+    );
 
     return res.json({ round: r.rows[0], bets: bets.rows || [] });
   } catch (err) {
@@ -214,10 +288,7 @@ router.get("/rounds/:roundId", requireAdmin, async (req, res) => {
   }
 });
 
-/* ----------------- Admin: list bets (filterable) ----------------- */
-/**
- * GET /api/admin/bets?userId=&roundId=&status=&limit=
- */
+/* =================== BETS LIST =================== */
 router.get("/bets", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   try {
@@ -246,13 +317,7 @@ router.get("/bets", requireAdmin, async (req, res) => {
   }
 });
 
-/* ----------------- Admin: refund a bet ----------------- */
-/**
- * POST /api/admin/bets/:betId/refund
- *
- * Idempotent: if already refunded, returns success.
- * Will NOT refund bets with status 'cashed' (admin reversal of cashed payouts requires a different workflow).
- */
+/* =================== REFUND BET =================== */
 router.post("/bets/:betId/refund", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   const betId = req.params.betId;
@@ -260,46 +325,49 @@ router.post("/bets/:betId/refund", requireAdmin, async (req, res) => {
 
   try {
     const result = await runTransaction(db, async (client) => {
-      // Lock bet row
-      const br = await client.query(`SELECT id, user_id, bet_amount, payout, status FROM bets WHERE id = $1 FOR UPDATE`, [betId]);
+      const br = await client.query(
+        `SELECT id, user_id, bet_amount, payout, status FROM bets WHERE id = $1 FOR UPDATE`, 
+        [betId]
+      );
       if (!br.rowCount) {
         const e = new Error("Bet not found");
         e.status = 404;
         throw e;
       }
-      const bet = br.rows[0];
 
-      // If already refunded, return info
+      const bet = br.rows[0];
       if (bet.status === 'refunded') {
         return { alreadyRefunded: true, betId: bet.id };
       }
 
       if (bet.status === 'cashed') {
-        const e = new Error("Cannot refund a cashed bet via this endpoint");
+        const e = new Error("Cannot refund a cashed bet");
         e.status = 400;
         throw e;
       }
 
-      // Otherwise perform refund: mark bet refunded and credit user (if any)
-      await client.query(`UPDATE bets SET status = 'refunded', updatedat = NOW() WHERE id = $1`, [betId]);
+      await client.query(
+        `UPDATE bets SET status = 'refunded', updatedat = NOW() WHERE id = $1`, 
+        [betId]
+      );
 
       if (bet.user_id && Number(bet.bet_amount) > 0) {
-        await client.query(`UPDATE users SET balance = balance + $1, updatedat = NOW() WHERE id = $2`, [bet.bet_amount, bet.user_id]);
+        await client.query(
+          `UPDATE users SET balance = balance + $1, updatedat = NOW() WHERE id = $2`, 
+          [bet.bet_amount, bet.user_id]
+        );
       }
 
-      // Return audit info
       return { betId: bet.id, refundedAmount: Number(bet.bet_amount || 0), userId: bet.user_id };
     });
 
-    // Log admin action
     if (result.alreadyRefunded) {
       logger.info('admin.bet.refund.noop', { betId });
       return res.json({ ok: true, message: "Bet already refunded", betId });
     }
 
-    logger.info('admin.bet.refund.success', { betId: result.betId, refundedAmount: result.refundedAmount, userId: result.userId, admin: req.get('x-admin-token') ? 'provided' : 'none' });
-
-    return res.json({ ok: true, betId: result.betId, refundedAmount: result.refundedAmount, userId: result.userId });
+    logger.info('admin.bet.refund.success', { ...result });
+    return res.json({ ok: true, ...result });
   } catch (err) {
     if (err && err.status) return sendError(res, err.status, err.message);
     logger.error("admin.bet.refund.error", { message: err && err.message ? err.message : String(err) });
@@ -307,11 +375,7 @@ router.post("/bets/:betId/refund", requireAdmin, async (req, res) => {
   }
 });
 
-/* ----------------- Admin: mark bet refunded (force) ----------------- */
-/**
- * POST /api/admin/bets/:betId/mark-refunded
- * Use when you want to mark a bet refunded without crediting user balance (audit only).
- */
+/* =================== MARK BET REFUNDED =================== */
 router.post("/bets/:betId/mark-refunded", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   const betId = req.params.betId;
@@ -327,156 +391,6 @@ router.post("/bets/:betId/mark-refunded", requireAdmin, async (req, res) => {
   }
 });
 
-/* =============== ADMIN: PAYMENTS (Phase 9.3) =============== */
-
-/**
- * GET /api/admin/payments
- * List all payments with filters
- */
-router.get("/payments", requireAdmin, async (req, res) => {
-  const db = req.app.locals.db;
-  try {
-    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
-    const offset = Math.max(0, Number(req.query.offset) || 0);
-    const type = req.query.type; // 'deposit' or 'withdraw'
-    const status = req.query.status; // 'pending', 'completed', 'failed'
-
-    let query = `SELECT id, user_id, type, amount, phone, mtn_transaction_id, status, mtn_status, created_at, updated_at FROM payments WHERE 1=1`;
-    const params = [];
-
-    if (type) {
-      params.push(type);
-      query += ` AND type = $${params.length}`;
-    }
-    if (status) {
-      params.push(status);
-      query += ` AND status = $${params.length}`;
-    }
-
-    query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
-
-    const q = await db.query(query, params);
-    return res.json({ payments: q.rows || [] });
-  } catch (err) {
-    logger.error("admin.payments.list.error", { message: err && err.message ? err.message : String(err) });
-    return sendError(res, 500, "Server error");
-  }
-});
-
-/**
- * GET /api/admin/payments/:paymentId
- * Get single payment details with audit history
- */
-router.get("/payments/:paymentId", requireAdmin, async (req, res) => {
-  const db = req.app.locals.db;
-  const paymentId = req.params.paymentId;
-
-  try {
-    const pRes = await db.query(
-      `SELECT id, user_id, type, amount, phone, mtn_transaction_id, status, mtn_status, error_reason, created_at, updated_at 
-       FROM payments WHERE id = $1`,
-      [paymentId]
-    );
-
-    if (!pRes.rowCount) return sendError(res, 404, "Payment not found");
-
-    const aRes = await db.query(
-      `SELECT old_status, new_status, reason, changed_at FROM payment_audit WHERE payment_id = $1 ORDER BY changed_at DESC`,
-      [paymentId]
-    );
-
-    return res.json({
-      payment: pRes.rows[0],
-      audit: aRes.rows || []
-    });
-  } catch (err) {
-    logger.error("admin.payments.detail.error", { message: err && err.message ? err.message : String(err) });
-    return sendError(res, 500, "Server error");
-  }
-});
-
-/**
- * POST /api/admin/payments/:paymentId/refund
- * Manually refund a failed/expired withdrawal
- */
-router.post("/payments/:paymentId/refund", requireAdmin, async (req, res) => {
-  const db = req.app.locals.db;
-  const paymentId = req.params.paymentId;
-
-  try {
-    const result = await runTransaction(db, async (client) => {
-      const pRes = await client.query(
-        `SELECT id, user_id, type, amount, status FROM payments WHERE id = $1 FOR UPDATE`,
-        [paymentId]
-      );
-
-      if (!pRes.rowCount) {
-        const e = new Error("Payment not found");
-        e.status = 404;
-        throw e;
-      }
-
-      const payment = pRes.rows[0];
-
-      // Only refund withdrawals that failed
-      if (payment.type !== 'withdraw' || payment.status === 'completed') {
-        const e = new Error("Can only refund failed withdrawals");
-        e.status = 400;
-        throw e;
-      }
-
-      // Credit user
-      await client.query(
-        `UPDATE users SET balance = balance + $1, updated_at = NOW() WHERE id = $2`,
-        [payment.amount, payment.user_id]
-      );
-
-      // Mark as refunded
-      await client.query(
-        `UPDATE payments SET status = 'refunded', updated_at = NOW() WHERE id = $1`,
-        [paymentId]
-      );
-
-      return { paymentId, amount: payment.amount, userId: payment.user_id };
-    });
-
-    logger.info('admin.payment.refund.success', { paymentId, amount: result.amount, userId: result.userId });
-    return res.json({ ok: true, message: "Payment refunded", ...result });
-  } catch (err) {
-    if (err.status) return sendError(res, err.status, err.message);
-    logger.error("admin.payment.refund.error", { message: err && err.message ? err.message : String(err) });
-    return sendError(res, 500, "Refund failed");
-  }
-});
-
-/**
- * GET /api/admin/payments/stats/summary
- * Payment statistics
- */
-router.get("/payments/stats/summary", requireAdmin, async (req, res) => {
-  const db = req.app.locals.db;
-  try {
-    const stats = await db.query(`
-      SELECT
-        COUNT(*) FILTER (WHERE type = 'deposit') as total_deposits,
-        SUM(amount) FILTER (WHERE type = 'deposit') as total_deposit_volume,
-        COUNT(*) FILTER (WHERE type = 'deposit' AND status = 'completed') as completed_deposits,
-        COUNT(*) FILTER (WHERE type = 'withdraw') as total_withdrawals,
-        SUM(amount) FILTER (WHERE type = 'withdraw') as total_withdrawal_volume,
-        COUNT(*) FILTER (WHERE type = 'withdraw' AND status = 'completed') as completed_withdrawals,
-        COUNT(*) FILTER (WHERE status = 'pending' OR status = 'processing') as pending_count
-      FROM payments
-    `);
-
-    return res.json({ ok: true, stats: stats.rows[0] || {} });
-  } catch (err) {
-    logger.error("admin.payments.stats.error", { message: err && err.message ? err.message : String(err) });
-    return sendError(res, 500, "Server error");
-  }
-});
-
-// Final log to confirm admin routes loaded successfully
 logger.info("admin.routes.loaded", { ts: new Date().toISOString() });
 
 module.exports = router;

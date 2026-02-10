@@ -10,23 +10,24 @@ const { sendError, sendSuccess, wrapAsync } = require("./apiResponses");
 const cache = require("./cache");
 const RateLimiter = require("./rateLimiter");
 
-const JWT_SECRET = process.env.JWT_SECRET || "change-this-secret"; // secure secret in Render env
+const JWT_SECRET = process.env.JWT_SECRET || "change-this-secret";
 
 // Phase 9.2: Rate limiting for auth endpoints
 const registerLimiter = new RateLimiter({
-  maxRequests: Number(process.env.REGISTER_RATE_LIMIT_REQUESTS || 3), // 3 attempts
-  windowMs: Number(process.env.REGISTER_RATE_LIMIT_WINDOW_MS || 3600000) // per 1 hour
+  maxRequests: Number(process.env.REGISTER_RATE_LIMIT_REQUESTS || 3),
+  windowMs: Number(process.env.REGISTER_RATE_LIMIT_WINDOW_MS || 3600000)
 });
 
 const loginLimiter = new RateLimiter({
-  maxRequests: Number(process.env.LOGIN_RATE_LIMIT_REQUESTS || 5), // 5 attempts
-  windowMs: Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 900000) // per 15 minutes
+  maxRequests: Number(process.env.LOGIN_RATE_LIMIT_REQUESTS || 5),
+  windowMs: Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 900000)
 });
 
 // Phase 9.1: Validation constants
 const MIN_PASSWORD_LENGTH = 6;
 const MAX_USERNAME_LENGTH = 100;
-const PHONE_REGEX = /^[+]?[\d\s\-()]{7,15}$/; // Basic international phone validation
+// FIXED: Accept phone with or without + sign
+const PHONE_REGEX = /^(\+)?\d{7,14}$/;
 
 // Phase 9.1: Validate password strength
 function validatePassword(password) {
@@ -39,7 +40,7 @@ function validatePassword(password) {
 // Phase 9.1: Validate phone number format
 function validatePhone(phone) {
   if (!phone || !PHONE_REGEX.test(phone)) {
-    return { valid: false, error: "Phone number format invalid" };
+    return { valid: false, error: "Phone number format invalid. Use +260777123456 or 0777123456" };
   }
   return { valid: true };
 }
@@ -55,7 +56,7 @@ function validateUsername(username) {
 // Phase 9.1: Sanitize user input (prevent injection)
 function sanitizeInput(input) {
   if (typeof input !== 'string') return input;
-  return input.trim().slice(0, 500); // limit length
+  return input.trim().slice(0, 500);
 }
 
 // Phase 9.2: Sanitize numeric input (prevent negative/extreme values)
@@ -65,7 +66,7 @@ function sanitizeNumeric(value, min = 0, max = Infinity) {
   return Math.max(min, Math.min(max, num));
 }
 
-// ----------------- Helper -----------------
+// --------- Helper ---------
 function sanitizeUser(row) {
   if (!row) return null;
   return {
@@ -79,7 +80,7 @@ function sanitizeUser(row) {
   };
 }
 
-// ----------------- Health + Game helpers -----------------
+// --------- Health + Game helpers ---------
 router.get("/health", (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
@@ -87,7 +88,6 @@ router.get("/health", (req, res) => {
 const { computePayout } = require("./gameEngine");
 router.get("/game/round", (req, res) => {
   try {
-    // Keep this endpoint as a helper to get a sample crash point (for dev)
     return res.json({ ok: true });
   } catch (err) {
     logger.error("Error generating crash point:", { message: err && err.message ? err.message : String(err) });
@@ -108,7 +108,7 @@ router.post("/game/payout", express.json(), (req, res) => {
   }
 });
 
-// ----------------- Auth & User endpoints -----------------
+// --------- Auth & User endpoints ---------
 
 // Phase 9.2: Register with rate limiting
 router.post("/auth/register", 
@@ -121,12 +121,10 @@ router.post("/auth/register",
     const db = req.app.locals.db;
     let { username, phone, password } = req.body || {};
 
-    // Phase 9.1: Sanitize inputs
     username = sanitizeInput(username);
     phone = sanitizeInput(phone);
     password = sanitizeInput(password);
 
-    // Phase 9.1: Validate inputs
     const usernameValidation = validateUsername(username);
     if (!usernameValidation.valid) return sendError(res, 400, usernameValidation.error);
 
@@ -170,7 +168,6 @@ router.post("/auth/login",
     const db = req.app.locals.db;
     let { phone, password } = req.body || {};
 
-    // Phase 9.1: Sanitize inputs
     phone = sanitizeInput(phone);
     password = sanitizeInput(password);
 
@@ -195,7 +192,7 @@ router.post("/auth/login",
   })
 );
 
-// ----------------- Auth middleware -----------------
+// --------- Auth middleware ---------
 async function requireAuth(req, res, next) {
   const db = req.app.locals.db;
   const auth = req.headers.authorization || "";
@@ -220,17 +217,15 @@ async function requireAuth(req, res, next) {
   }
 }
 
-// ----------------- User routes -----------------
+// --------- User routes ---------
 router.get("/users/me", requireAuth, (req, res) => {
   return res.json(req.user);
 });
 
-// Extracted handler for changing balance — atomic update
 const changeBalanceHandler = wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   let delta = Number(req.body?.delta);
 
-  // Phase 9.2: Sanitize numeric input
   delta = sanitizeNumeric(delta, -1000000, 1000000);
   if (delta === null) return sendError(res, 400, "delta must be a valid number");
 
@@ -259,7 +254,6 @@ router.post("/users/balance/change", requireAuth, express.json(), changeBalanceH
 router.post("/users/deposit", requireAuth, express.json(), wrapAsync(async (req, res) => {
   let amount = Number(req.body?.amount);
 
-  // Phase 9.2: Validate and sanitize deposit amount
   amount = sanitizeNumeric(amount, 0.01, 1000000);
   if (amount === null) return sendError(res, 400, "amount must be a valid number between 0.01 and 1000000");
 
@@ -270,7 +264,6 @@ router.post("/users/deposit", requireAuth, express.json(), wrapAsync(async (req,
 router.post("/users/withdraw", requireAuth, express.json(), wrapAsync(async (req, res) => {
   let amount = Number(req.body?.amount);
 
-  // Phase 9.2: Validate and sanitize withdraw amount
   amount = sanitizeNumeric(amount, 0.01, 1000000);
   if (amount === null) return sendError(res, 400, "amount must be a valid number between 0.01 and 1000000");
 
@@ -278,21 +271,16 @@ router.post("/users/withdraw", requireAuth, express.json(), wrapAsync(async (req
   return changeBalanceHandler(req, res);
 }));
 
-// ----------------- Public game history endpoints with caching -----------------
+// --------- Public game history endpoints with caching ---------
 
-// Cache TTLs (ms)
-const HISTORY_CACHE_TTL_MS = Number(process.env.HISTORY_CACHE_TTL_MS || 15_000); // 15s
-const ROUND_CACHE_TTL_MS = Number(process.env.ROUND_CACHE_TTL_MS || 5_000); // 5s
+const HISTORY_CACHE_TTL_MS = Number(process.env.HISTORY_CACHE_TTL_MS || 15_000);
+const ROUND_CACHE_TTL_MS = Number(process.env.ROUND_CACHE_TTL_MS || 5_000);
 
 function isAdminRequest(req) {
   const t = req.get("x-admin-token") || "";
   return !!t;
 }
 
-/**
- * GET /api/game/history?limit=50&since=<iso|epoch-ms>&force=1
- * - Cached for HISTORY_CACHE_TTL_MS unless admin header present or force=1 query param.
- */
 router.get("/game/history", wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   if (!db) {
@@ -300,14 +288,12 @@ router.get("/game/history", wrapAsync(async (req, res) => {
     return sendError(res, 500, "Database not initialized");
   }
 
-  // Phase 9.2: Sanitize query parameters
   let limit = sanitizeNumeric(req.query.limit, 1, 200) || 50;
   const force = String(req.query.force || '').toLowerCase() === '1' || String(req.query.force || '').toLowerCase() === 'true';
   const since = req.query.since || null;
 
   const cacheKey = `history:limit=${limit}:since=${since || ''}`;
 
-  // bypass cache for admin requests or explicit force
   if (!isAdminRequest(req) && !force) {
     const cached = cache.get(cacheKey);
     if (cached) {
@@ -331,7 +317,6 @@ router.get("/game/history", wrapAsync(async (req, res) => {
     const rows = await db.query(query, params);
     const payload = { rounds: rows.rows || [] };
 
-    // store in cache (non-admin requests only)
     if (!isAdminRequest(req) && !force) cache.set(cacheKey, payload, HISTORY_CACHE_TTL_MS);
 
     return res.json(payload);
@@ -341,10 +326,6 @@ router.get("/game/history", wrapAsync(async (req, res) => {
   }
 }));
 
-/**
- * GET /api/game/rounds/:roundId
- * - Cached short-term to speed repeated detail views.
- */
 router.get("/game/rounds/:roundId", wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   const roundId = req.params.roundId;
@@ -379,13 +360,6 @@ router.get("/game/rounds/:roundId", wrapAsync(async (req, res) => {
   }
 }));
 
-/* ----------------- Provably-fair endpoints ----------------- */
-
-/**
- * GET /api/game/commitments/latest
- * Returns the latest pre-committed seed hash and idx (public).
- * Example: { idx: 123, seed_hash: "abcd...", created_at: "..." }
- */
 router.get("/game/commitments/latest", wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   try {
@@ -398,11 +372,6 @@ router.get("/game/commitments/latest", wrapAsync(async (req, res) => {
   }
 }));
 
-/**
- * GET /api/game/reveal/:roundId
- * Returns revealed serverSeed for a finished round (so clients can verify).
- * Example response: { roundId, commitIdx, serverSeed, serverSeedHash, revealedAt, crashPoint }
- */
 router.get("/game/reveal/:roundId", wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   const roundId = req.params.roundId;

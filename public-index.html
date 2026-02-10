@@ -10,87 +10,85 @@
       --bg:#081a2b; --panel:#0c223a; --accent:#FFD700; --muted:rgba(255,255,255,0.72);
       --white:#ffffff; --danger:#d7263d; --control-height:48px; --gap:10px;
     }
-    html,body{height:100%;margin:0;padding:0;background:var(--bg);color:var(--white);-webkit-font-smoothing:antialiased;font-family:Inter,system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;}
+    * { box-sizing: border-box; }
+    html,body{height:100%;margin:0;padding:0;background:var(--bg);color:var(--white);-webkit-font-smoothing:antialiased;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;}
 
-    /* Header */
     header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:#03101f;position:sticky;top:0;z-index:30;border-bottom:1px solid rgba(255,255,255,0.03)}
     header h1{margin:0;font-size:18px;color:var(--accent);font-weight:700;display:flex;align-items:center;gap:8px}
-    .header-right{display:flex;align-items:center;gap:8px}
+    .header-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 
-    /* Panel & user info */
     .panel{padding:10px 12px;text-align:left}
     #userInfo{font-size:14px;color:var(--muted)}
     #username{font-weight:700;color:var(--white)}
     #balance{color:var(--white);font-weight:600}
 
-    /* Game area */
-    .game-box{margin:12px;border-radius:12px;background:linear-gradient(180deg,#12345a,#0a2b46);padding:10px;min-height:260px;position:relative;overflow:hidden;display:flex;align-items:flex-start;justify-content:flex-start}
-    #multiplier{font-size:28px;font-weight:800;color:var(--white);margin-left:8px}
-    #plane{width:80px;transition:transform 0.08s linear;will-change:transform}
+    .game-box{margin:12px;border-radius:12px;background:linear-gradient(180deg,#12345a,#0a2b46);padding:20px;min-height:300px;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-direction:column}
+    .game-content{display:flex;align-items:center;gap:30px;width:100%}
+    #multiplier{font-size:48px;font-weight:800;color:var(--accent);margin:0;min-width:150px;text-align:center}
+    #plane{width:120px;height:60px;transition:all 0.1s linear;will-change:transform}
+    #status{font-size:16px;color:var(--muted);margin-top:20px;text-align:center;width:100%}
 
-    /* Controls */
-    .controls{padding:12px;display:flex;flex-direction:column;gap:10px;align-items:center}
+    .controls{padding:12px;display:flex;flex-direction:column;gap:10px;align-items:stretch}
     .row{display:flex;gap:8px;width:100%;align-items:center}
-    input[type=number]{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:#071a2b;color:var(--white);width:140px;text-align:center;font-size:16px}
-    button{cursor:pointer;border:none;border-radius:10px;padding:10px 14px;font-weight:700}
-    .primary{background:var(--accent);color:#000;padding:12px 18px}
-    .danger{background:var(--danger);color:#fff;padding:12px 18px}
-    .panel-small{background:rgba(255,255,255,0.02);padding:8px;border-radius:8px}
+    input[type=number],input[type=text],input[type=password]{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:#071a2b;color:var(--white);flex:1;font-size:16px}
+    button{cursor:pointer;border:none;border-radius:10px;padding:10px 14px;font-weight:700;transition:all 0.2s;font-size:14px}
+    .primary{background:var(--accent);color:#000;padding:12px 18px;flex:1}
+    .primary:hover{opacity:0.9}
+    .danger{background:var(--danger);color:#fff;padding:12px 18px;flex:1}
+    .danger:hover{opacity:0.9}
+    .btn-secondary{background:rgba(255,255,255,0.1);color:var(--white)}
+    .btn-secondary:hover{background:rgba(255,255,255,0.15)}
 
-    /* Wallet */
-    .wallet-row{display:flex;gap:10px;justify-content:center}
-    .wallet-row button{background:#f0f0f0;color:#111;border-radius:8px;padding:10px 12px;font-weight:600}
+    .wallet-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+    .wallet-row button{background:#f0f0f0;color:#111;border-radius:8px;padding:10px 12px;font-weight:600;flex:0}
 
-    /* Modals */
     .modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);display:none;align-items:center;justify-content:center;z-index:1000;padding:12px}
-    .modal-content{background:var(--panel);padding:18px;border-radius:10px;color:var(--white);width:100%;max-width:520px;max-height:90vh;overflow:auto}
-    .modal h3{margin-top:0}
-    .flex{display:flex;gap:8px;align-items:center;justify-content:center}
+    .modal.show{display:flex}
+    .modal-content{background:var(--panel);padding:20px;border-radius:10px;color:var(--white);width:100%;max-width:450px;max-height:90vh;overflow:auto}
+    .modal h3{margin-top:0;color:var(--accent)}
+    .modal input{width:100%;margin-bottom:10px;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:#071a2b;color:var(--white)}
+    .modal-actions{display:flex;gap:8px;margin-top:15px}
+    .modal-actions button{flex:1}
+    .modal-message{margin:10px 0;padding:10px;border-radius:6px;font-size:14px;display:none}
+    .modal-message.error{background:#d7263d;color:#fff;display:block}
+    .modal-message.success{background:#083a1f;color:#fff;display:block}
 
-    /* History */
-    .history-list{max-height:55vh;overflow:auto;text-align:left;margin-top:10px}
-    .history-item{padding:8px;border-radius:6px;margin-bottom:6px;background:rgba(255,255,255,0.02);cursor:pointer}
-    .small{font-size:12px;color:#cfe8ff}
-    .meta-row{display:flex;justify-content:space-between;gap:8px;align-items:center}
-    .badge{padding:4px 8px;border-radius: 6px;background: rgba(255,255,255,0.06);font-size:12px}
-    #metrics{margin-left:12px;font-size:13px;color:#cfe8ff}
+    .hidden{display:none !important}
+    main{padding-bottom:120px}
 
-    /* Responsive */
-    @media (max-width:520px){
-      #multiplier{font-size:22px}
-      #plane{width:64px}
-      .game-box{min-height:180px;margin:10px;border-radius:10px;padding:8px}
-      .controls{position:fixed;left:0;right:0;bottom:0;padding:12px;background:linear-gradient(180deg, rgba(8,26,43,0.2), var(--bg));border-top:1px solid rgba(255,255,255,0.03)}
-      input[type=number]{width:100%;flex:1}
-      .controls .full{width:48%}
-      .history-list{max-height:60vh}
+    @media (max-width:600px){
+      .game-content{flex-direction:column;gap:15px}
+      #multiplier{font-size:36px}
+      #plane{width:80px;height:40px}
+      .controls{padding:10px;gap:8px}
+      input[type=number]{width:100%}
+      .row{flex-direction:column}
+      .row input,.row button{width:100%}
     }
 
-    /* Accessibility focus */
-    button:focus, input:focus{outline:3px solid rgba(255,215,0,0.15);outline-offset:2px}
+    button:focus,input:focus{outline:3px solid rgba(255,215,0,0.15);outline-offset:2px}
   </style>
 </head>
 <body>
   <header role="banner" aria-label="App header">
-    <h1 aria-hidden="true">✈️ FlyZed</h1>
-    <div class="header-right" role="navigation" aria-label="Top controls">
-      <div id="metrics" class="badge" aria-live="polite">Loading metrics...</div>
-      <button id="historyBtn" class="badge" onclick="showHistory()" aria-label="Show game history">History</button>
-      <button id="loginBtn" onclick="showLogin()">Login</button>
-      <button id="registerBtn" onclick="showRegister()">Register</button>
-      <button id="logoutBtn" onclick="logout()" class="hidden">Logout</button>
-      <button id="guestBtn" onclick="useGuest()">Guest</button>
+    <h1>🛩️ FlyZed</h1>
+    <div class="header-right">
+      <button id="loginBtn" onclick="showLogin()" class="btn-secondary">Login</button>
+      <button id="registerBtn" onclick="showRegister()" class="btn-secondary">Register</button>
+      <button id="logoutBtn" onclick="logout()" class="btn-secondary hidden">Logout</button>
     </div>
   </header>
 
-  <main role="main" style="padding-bottom:92px;">
-    <section class="panel" aria-label="User info">
-      <div id="userInfo">Logged in as: <b id="username">Guest</b> — Balance: <b id="balance">ZMW <span id="balanceVal">10.00</span></b></div>
+  <main>
+    <section class="panel">
+      <div id="userInfo">Logged in as: <b id="username">Guest</b> | Balance: <b id="balance">K 10.00</b></div>
     </section>
 
-    <section class="game-box" aria-live="polite" aria-atomic="true">
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        <div id="multiplier" aria-hidden="true">1.00x</div>
+    <section class="game-box" id="gameBox">
+      <div class="game-content">
+        <div>
+          <div id="multiplier">1.00x</div>
+        </div>
         <svg id="plane" viewBox="0 0 64 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <path d="M4 18 C18 18 32 16 46 12 C50 11 54 9 60 8 L58 6 C52 7 48 9 44 10 C30 14 18 16 6 18 Z" fill="#FFD54F"/>
           <path d="M18 18 L36 10 L40 12 L24 20 Z" fill="#FF7043"/>
@@ -99,649 +97,448 @@
           <circle cx="46" cy="11" r="2.2" fill="rgba(0,0,0,0.6)"/>
         </svg>
       </div>
+      <div id="status">⏳ Waiting for round to start...</div>
     </section>
 
-    <section class="controls" role="region" aria-label="Game controls">
-      <div class="row" style="width:100%;">
-        <input id="betAmount" type="number" min="1" step="1" value="5" aria-label="Bet amount" />
-        <button class="primary full" onclick="startGame()" aria-label="Start game">Play</button>
+    <section class="controls">
+      <div class="row">
+        <input id="betAmount" type="number" min="1" step="1" value="5" placeholder="Bet amount (K)" />
+        <button class="primary" id="playBtn" onclick="startGame()">Play</button>
       </div>
 
-      <div class="row" style="width:100%;">
-        <button id="cashOutBtn" class="danger full" disabled onclick="cashOut()" aria-label="Cash out">Cash Out</button>
+      <div class="row">
+        <button class="danger" id="cashOutBtn" disabled onclick="cashOut()">Cash Out</button>
       </div>
 
-      <div class="wallet-row" style="margin-top:6px;">
-        <button onclick="deposit()" aria-label="Deposit">Deposit ZMW</button>
-        <button onclick="withdraw()" aria-label="Withdraw">Withdraw ZMW</button>
+      <div class="wallet-row">
+        <button class="btn-secondary" onclick="deposit()">+ Deposit</button>
+        <button class="btn-secondary" onclick="withdraw()">- Withdraw</button>
       </div>
     </section>
   </main>
 
   <!-- Login Modal -->
-  <div class="modal" id="loginModal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+  <div class="modal" id="loginModal">
     <div class="modal-content">
-      <h3 id="loginTitle">Login</h3>
-      <input id="loginPhone" placeholder="Phone number" aria-label="Phone number" />
-      <input id="loginPassword" type="password" placeholder="Password" aria-label="Password" />
-      <div class="flex" style="margin-top:8px; justify-content:flex-end;">
-        <button class="primary" onclick="login()">Submit</button>
-        <button onclick="hideModals()">Cancel</button>
+      <h3>Login</h3>
+      <input id="loginPhone" type="text" placeholder="Phone (e.g., 260777123456)" />
+      <input id="loginPassword" type="password" placeholder="Password" />
+      <div id="loginMessage" class="modal-message"></div>
+      <div class="modal-actions">
+        <button class="primary" onclick="login()">Login</button>
+        <button class="btn-secondary" onclick="hideModals()">Cancel</button>
       </div>
     </div>
   </div>
 
   <!-- Register Modal -->
-  <div class="modal" id="registerModal" role="dialog" aria-modal="true" aria-labelledby="registerTitle">
+  <div class="modal" id="registerModal">
     <div class="modal-content">
-      <h3 id="registerTitle">Register</h3>
-      <input id="regName" placeholder="Full name" aria-label="Full name" />
-      <input id="regPhone" placeholder="Phone number" aria-label="Phone number" />
-      <input id="regPassword" type="password" placeholder="Password" aria-label="Password" />
-      <div class="flex" style="margin-top:8px; justify-content:flex-end;">
-        <button class="primary" onclick="register()">Submit</button>
-        <button onclick="hideModals()">Cancel</button>
+      <h3>Register</h3>
+      <input id="regName" type="text" placeholder="Full name" />
+      <input id="regPhone" type="text" placeholder="Phone (e.g., 260777123456)" />
+      <input id="regPassword" type="password" placeholder="Password (min 6 chars)" />
+      <label style="color:var(--muted);font-size:12px;margin-bottom:10px;display:flex;gap:8px;align-items:center;">
+        <input type="checkbox" id="agreeTerms" />
+        I'm 18+ and agree to Terms & Conditions
+      </label>
+      <div id="registerMessage" class="modal-message"></div>
+      <div class="modal-actions">
+        <button class="primary" onclick="register()">Register</button>
+        <button class="btn-secondary" onclick="hideModals()">Cancel</button>
       </div>
     </div>
   </div>
 
-  <!-- History Modal -->
-  <div class="modal" id="historyModal" role="dialog" aria-modal="true" aria-labelledby="historyTitle">
-    <div class="modal-content">
-      <h3 id="historyTitle">Recent Rounds <span class="small" id="historyHint"></span></h3>
-      <div id="historyContainer" class="history-list" aria-live="polite"></div>
-      <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
-        <button onclick="loadHistory()">Refresh</button>
-        <button onclick="hideHistory()">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Round Detail Modal -->
-  <div class="modal" id="roundModal" role="dialog" aria-modal="true" aria-labelledby="roundTitle">
-    <div class="modal-content" id="roundContent">
-      <h3 id="roundTitle">Round</h3>
-      <div id="roundBody"></div>
-      <div style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
-        <button id="verifyBtn" onclick="verifyCurrentRound()" class="primary hidden">Verify</button>
-        <button onclick="closeRound()">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Scripts -->
-  <script src="/socket.io/socket.io.js"></script>
   <script>
-/*
-  Full UI + Socket.IO client (automatic token auth, fallback polling, provably-fair verification helpers)
-  - Merges the full-featured UI with realtime updates.
-  - Uses Web Crypto API for verification (SHA-256 & HMAC-SHA256).
-*/
+    // ===== CONFIG =====
+    const API_BASE = '/api';
+    const TOKEN_KEY = 'flyzed_token';
 
-const API = location.origin + '/api';
-const SOCKET_PATH = '/socket.io';
-const BROADCAST_FALLBACK_MS = 250;
-const SOCKET_CONNECT_TIMEOUT_MS = 1500;
+    // ===== STATE =====
+    let authMode = null;
+    let currentUser = null;
+    let guestBalance = 10;
+    let running = false;
+    let currentBet = 0;
+    let multiplier = 1.0;
+    let gameTimer = null;
+    let crashed = false;
+    let roundActive = false;
 
-let user = { guest: true };
-let balance = Number(localStorage.getItem("guest_balance") || 10);
-let running = false;
-let currentBet = 0;
-let roundCrashed = false;
-let currentRoundId = null;
-let statusPoller = null;
-let spectatorPoller = null;
-let socket = null;
-let socketConnected = false;
+    // ===== DOM =====
+    const loginModal = document.getElementById('loginModal');
+    const registerModal = document.getElementById('registerModal');
+    const loginBtn = document.getElementById('loginBtn');
+    const registerBtn = document.getElementById('registerBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const gameBox = document.getElementById('gameBox');
 
-/* ----------------- DOM refs ----------------- */
-const loginModal = document.getElementById("loginModal");
-const registerModal = document.getElementById("registerModal");
-const historyModal = document.getElementById("historyModal");
-const roundModal = document.getElementById("roundModal");
-const loginBtn = document.getElementById("loginBtn");
-const registerBtn = document.getElementById("registerBtn");
-const logoutBtn = document.getElementById("logoutBtn");
-const guestBtn = document.getElementById("guestBtn");
-const balanceEl = document.getElementById("balanceVal");
-const verifyBtn = document.getElementById("verifyBtn");
+    // ===== API HELPER =====
+    async function apiFetch(path, opts = {}, withAuth = true) {
+      const url = API_BASE + path;
+      const headers = opts.headers || {};
 
-function updateUI() {
-  document.getElementById("username").textContent = user.guest ? "Guest" : (user.username || user.name || "User");
-  document.getElementById("balanceVal").textContent = Number(balance || 0).toFixed(2);
-  if (user.guest) {
-    logoutBtn.classList.add("hidden");
-    loginBtn.classList.remove("hidden");
-    registerBtn.classList.remove("hidden");
-    guestBtn.classList.remove("hidden");
-  } else {
-    logoutBtn.classList.remove("hidden");
-    loginBtn.classList.add("hidden");
-    registerBtn.classList.add("hidden");
-    guestBtn.classList.add("hidden");
-  }
-}
-updateUI();
+      if (withAuth) {
+        const token = localStorage.getItem(TOKEN_KEY);
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+      }
 
-/* ----------------- Modal helpers ----------------- */
-function show(el) { el.style.display = "flex"; }
-function hide(el) { el.style.display = "none"; }
-function showLogin() { show(loginModal); }
-function showRegister() { show(registerModal); }
-function hideModals() { hide(loginModal); hide(registerModal); }
-function showHistory() { show(historyModal); loadHistory(); }
-function hideHistory() { hide(historyModal); }
-function showRoundModal() { show(roundModal); }
-function closeRound() { hide(roundModal); verifyBtn.classList.add('hidden'); }
+      if (opts.body && typeof opts.body === 'object') {
+        opts.body = JSON.stringify(opts.body);
+        opts.headers = { ...opts.headers, 'Content-Type': 'application/json' };
+      }
 
-/* ----------------- Web Crypto helpers for verification ----------------- */
-function hexToBytes(hex) {
-  if (!hex) return new Uint8Array();
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-  }
-  return bytes;
-}
-function bytesToHex(bytes) {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join('');
-}
-async function sha256Hex(str) {
-  const enc = new TextEncoder();
-  const data = enc.encode(str);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return bytesToHex(new Uint8Array(hash));
-}
-async function hmacSha256Hex(keyHex, message = '') {
-  // keyHex is hex string representing key bytes
-  const keyBytes = hexToBytes(keyHex);
-  const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(String(message)));
-  return bytesToHex(new Uint8Array(sig));
-}
-function computeCrashFromHashHex(hashHex) {
-  // same 52-bit mapping as server: take first 13 hex chars -> 52 bits
-  const prefix = (hashHex || '').slice(0,13);
-  const h = parseInt(prefix, 16);
-  const e = Math.pow(2,52);
-  const numerator = (100 * e - h);
-  const denominator = (e - h);
-  if (denominator <= 0) return 1.0;
-  const result = Math.floor((numerator / denominator)) / 100;
-  return Math.max(1.0, Number(result.toFixed(2)));
-}
+      try {
+        const res = await fetch(url, { ...opts, headers });
+        const text = await res.text();
+        let json = null;
 
-/* ----------------- Socket.IO realtime ----------------- */
-function connectSocket() {
-  try {
-    const token = localStorage.getItem("token");
-    socket = io({
-      auth: { token: token || null }
-    });
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch (e) {
+          json = null;
+        }
 
-    socket.on('connect', () => {
-      socketConnected = true;
-      console.info('socket connected', socket.id);
-      document.getElementById('metrics').textContent = 'Live';
-      stopFallbackPoll();
-    });
+        if (!res.ok) {
+          throw new Error(json?.error || `HTTP ${res.status}`);
+        }
 
-    socket.on('connect_error', (err) => {
-      console.warn('socket connect_error', err && err.message ? err.message : err);
-      socketConnected = false;
-      startFallbackPoll();
-    });
+        return json;
+      } catch (err) {
+        console.error(`[API] ${path}:`, err.message);
+        throw err;
+      }
+    }
 
-    socket.on('disconnect', (reason) => {
-      console.info('socket disconnected', reason);
-      socketConnected = false;
-      startFallbackPoll();
-    });
+    // ===== UI HELPERS =====
+    function updateUI() {
+      const name = authMode ? (currentUser?.username || 'User') : 'Guest';
+      const balance = authMode ? (currentUser?.balance || 0) : guestBalance;
 
-    socket.on('multiplier', (payload) => {
-      if (!payload) return;
-      renderMultiplier(payload.multiplier || 1);
-      if (payload.status === 'crashed') onCrash(payload);
-      if (payload.status === 'running') {
-        running = true;
-        currentRoundId = payload.roundId || null;
-        document.getElementById('cashOutBtn').disabled = false;
+      document.getElementById('username').textContent = name;
+      document.getElementById('balance').textContent = 'K ' + Number(balance).toFixed(2);
+
+      loginBtn.classList.toggle('hidden', !!authMode);
+      registerBtn.classList.toggle('hidden', !!authMode);
+      logoutBtn.classList.toggle('hidden', !authMode);
+    }
+
+    function showLogin() {
+      document.getElementById('loginPhone').value = '';
+      document.getElementById('loginPassword').value = '';
+      document.getElementById('loginMessage').textContent = '';
+      loginModal.classList.add('show');
+      document.getElementById('loginPhone').focus();
+    }
+
+    function showRegister() {
+      document.getElementById('regName').value = '';
+      document.getElementById('regPhone').value = '';
+      document.getElementById('regPassword').value = '';
+      document.getElementById('agreeTerms').checked = false;
+      document.getElementById('registerMessage').textContent = '';
+      registerModal.classList.add('show');
+      document.getElementById('regName').focus();
+    }
+
+    function hideModals() {
+      loginModal.classList.remove('show');
+      registerModal.classList.remove('show');
+    }
+
+    function showMessage(modalId, message, isError) {
+      const el = document.getElementById(modalId);
+      el.textContent = message;
+      el.className = `modal-message ${isError ? 'error' : 'success'}`;
+    }
+
+    // ===== AUTH =====
+    async function register() {
+      const name = document.getElementById('regName').value.trim();
+      const phone = document.getElementById('regPhone').value.trim();
+      const password = document.getElementById('regPassword').value.trim();
+      const agreed = document.getElementById('agreeTerms').checked;
+
+      if (!name || !phone || !password) {
+        showMessage('registerMessage', 'Please fill all fields', true);
+        return;
+      }
+
+      if (password.length < 6) {
+        showMessage('registerMessage', 'Password must be at least 6 characters', true);
+        return;
+      }
+
+      if (!agreed) {
+        showMessage('registerMessage', 'You must agree to Terms & Conditions', true);
+        return;
+      }
+
+      try {
+        const data = await apiFetch('/auth/register', {
+          method: 'POST',
+          body: { username: name, phone, password }
+        }, false);
+
+        localStorage.setItem(TOKEN_KEY, data.token);
+        currentUser = data.user;
+        authMode = 'server';
+        updateUI();
+
+        showMessage('registerMessage', 'Registration successful!', false);
+        setTimeout(hideModals, 1000);
+      } catch (err) {
+        showMessage('registerMessage', err.message, true);
+      }
+    }
+
+    async function login() {
+      const phone = document.getElementById('loginPhone').value.trim();
+      const password = document.getElementById('loginPassword').value.trim();
+
+      if (!phone || !password) {
+        showMessage('loginMessage', 'Please fill all fields', true);
+        return;
+      }
+
+      try {
+        const data = await apiFetch('/auth/login', {
+          method: 'POST',
+          body: { phone, password }
+        }, false);
+
+        localStorage.setItem(TOKEN_KEY, data.token);
+        currentUser = data.user;
+        authMode = 'server';
+        updateUI();
+
+        showMessage('loginMessage', 'Login successful!', false);
+        setTimeout(hideModals, 1000);
+      } catch (err) {
+        showMessage('loginMessage', err.message, true);
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem(TOKEN_KEY);
+      currentUser = null;
+      authMode = null;
+      guestBalance = 10;
+      updateUI();
+    }
+
+    // ===== GAME =====
+    async function startGame() {
+      if (running) return alert('Round already in progress');
+
+      const bet = Number(document.getElementById('betAmount').value);
+      if (bet <= 0) return alert('Invalid bet amount');
+
+      if (authMode === 'server') {
+        if (!currentUser || bet > currentUser.balance) {
+          return alert('Insufficient balance');
+        }
       } else {
+        if (bet > guestBalance) {
+          return alert('Insufficient balance (guest)');
+        }
+      }
+
+      try {
+        const data = await apiFetch('/game/start', {
+          method: 'POST',
+          body: { betAmount: bet }
+        }, true);
+
+        currentBet = bet;
+        multiplier = 1.0;
+        running = true;
+        crashed = false;
+        roundActive = true;
+
+        if (authMode === 'server') {
+          currentUser.balance = data.balance;
+        } else {
+          guestBalance -= bet;
+        }
+
+        updateUI();
+        document.getElementById('cashOutBtn').disabled = false;
+        document.getElementById('playBtn').disabled = true;
+        document.getElementById('status').textContent = '✈️ Game started...';
+        document.getElementById('multiplier').textContent = '1.00x';
+
+        simulateGame();
+      } catch (err) {
+        alert('Failed to start round: ' + err.message);
+      }
+    }
+
+    async function cashOut() {
+      if (crashed) return alert('Too late - already crashed!');
+      if (!running) return alert('No active game');
+
+      try {
+        const data = await apiFetch('/game/cashout', {
+          method: 'POST',
+          body: {}
+        }, true);
+
+        running = false;
+        clearInterval(gameTimer);
         document.getElementById('cashOutBtn').disabled = true;
+        document.getElementById('playBtn').disabled = false;
+
+        if (data.success) {
+          const payout = Number(data.payout);
+          if (authMode === 'server') {
+            currentUser.balance = data.balance;
+          } else {
+            guestBalance += payout;
+          }
+          updateUI();
+          alert(`✅ Won K ${payout.toFixed(2)}!`);
+          document.getElementById('status').textContent = `✅ Cashed out at ${data.multiplier}x`;
+        } else {
+          alert(`💥 Crashed at ${data.multiplier}x`);
+          document.getElementById('status').textContent = `💥 Lost K ${currentBet}`;
+        }
+      } catch (err) {
+        alert('Cash out failed: ' + err.message);
       }
-    });
+    }
 
-    socket.on('roundStarted', (payload) => {
-      console.info('roundStarted', payload);
-      running = true;
-      currentRoundId = payload.roundId || null;
-      document.getElementById('cashOutBtn').disabled = false;
-    });
+    function simulateGame() {
+      const crashPoint = 1.2 + Math.random() * 5;
+      let elapsed = 0;
 
-    socket.on('crash', (payload) => {
-      console.info('crash', payload);
-      onCrash(payload);
-    });
+      gameTimer = setInterval(() => {
+        elapsed += 0.05;
+        multiplier = 1 + elapsed;
+        document.getElementById('multiplier').textContent = multiplier.toFixed(2) + 'x';
 
-  } catch (e) {
-    console.error('connectSocket error', e);
-    startFallbackPoll();
-  }
-}
+        const planeEl = document.getElementById('plane');
+        planeEl.style.transform = `translateX(${Math.min(200, elapsed * 30)}px) translateY(${-elapsed * 20}px) rotate(${elapsed * 5}deg)`;
 
-function onCrash(payload) {
-  running = false;
-  document.getElementById('cashOutBtn').disabled = true;
-  renderMultiplier(payload.crashPoint || payload.multiplier || 1);
-  try { showToast('Round crashed at ' + (payload.crashPoint || payload.multiplier || 1) + 'x'); } catch (e) {}
-}
+        if (multiplier >= crashPoint) {
+          clearInterval(gameTimer);
+          crashed = true;
+          running = false;
+          document.getElementById('cashOutBtn').disabled = true;
+          document.getElementById('playBtn').disabled = false;
+          document.getElementById('status').textContent = `💥 CRASH at ${crashPoint.toFixed(2)}x`;
+          if (authMode === 'server') {
+            currentUser.balance -= currentBet;
+          }
+          updateUI();
+        }
+      }, 100);
+    }
 
-/* ----------------- Fallback polling (spectator) ----------------- */
-function startFallbackPoll(intervalMs = BROADCAST_FALLBACK_MS) {
-  if (spectatorPoller) return;
-  spectatorPoller = setInterval(async () => {
-    try {
-      if (running) { stopFallbackPoll(); return; }
-      const res = await fetch(`${API}/game/status`);
-      if (!res.ok) return;
-      const data = await res.json().catch(()=>null);
-      if (!data) return;
-      let liveMult = 1;
-      if (data.startedAt) {
-        const elapsedMs = Date.now() - Number(data.startedAt);
-        liveMult = 1 + (elapsedMs / 1000) * 1;
-      } else if (data.multiplier) {
-        liveMult = Number(data.multiplier);
+    async function deposit() {
+      const amount = prompt('Enter deposit amount (K):');
+      if (!amount || isNaN(amount) || amount <= 0) return;
+
+      if (!authMode) {
+        guestBalance += Number(amount);
+        updateUI();
+        alert('Deposit applied (guest mode - not saved)');
+        return;
       }
-      if (data.status === "crashed") { renderMultiplier(data.multiplier ?? data.crashPoint ?? 1); return; }
-      renderMultiplier(liveMult);
-    } catch (e) { console.warn('spectator poll error', e); }
-  }, intervalMs);
-}
-function stopFallbackPoll() { if (spectatorPoller) { clearInterval(spectatorPoller); spectatorPoller = null; } }
 
-/* Start socket and fallback */
-connectSocket();
-setTimeout(() => { if (!socketConnected) startFallbackPoll(); }, SOCKET_CONNECT_TIMEOUT_MS);
+      try {
+        const phone = prompt('Enter your phone number:');
+        if (!phone) return;
 
-/* ----------------- Render helpers ----------------- */
-function renderMultiplier(mult) {
-  const m = Number(Number(mult || 1).toFixed(2));
-  const multEl = document.getElementById("multiplier");
-  const planeEl = document.getElementById("plane");
-  if (multEl) multEl.textContent = m.toFixed(2) + "x";
-  if (planeEl) {
-    const x = Math.min(140, m * 14);
-    const y = m * -6;
-    planeEl.style.transform = `translate(${x}px, ${y}px)`;
-  }
-}
+        await apiFetch('/payments/deposit', {
+          method: 'POST',
+          body: { amount: Number(amount), phone }
+        }, true);
 
-/* ----------------- Game API calls (HTTP) ----------------- */
-function authHeaders() {
-  const token = localStorage.getItem("token");
-  const headers = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = "Bearer " + token;
-  return headers;
-}
-
-async function startGame() {
-  if (running) return;
-  const bet = Number(document.getElementById("betAmount").value);
-  if (!bet || isNaN(bet) || bet <= 0) return alert("Invalid bet amount");
-
-  try {
-    const res = await fetch(API + "/game/start", {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({ betAmount: bet })
-    });
-
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) {
-      return alert(data.error || "Failed to start round");
+        alert('Deposit requested. Check your phone for MTN prompt.');
+      } catch (err) {
+        alert('Deposit failed: ' + err.message);
+      }
     }
 
-    if (data.balance !== undefined) { balance = Number(data.balance); updateUI(); }
-    currentRoundId = data.roundId;
-    currentBet = bet;
-    roundCrashed = false;
-    running = true;
+    async function withdraw() {
+      const amount = prompt('Enter withdrawal amount (K):');
+      if (!amount || isNaN(amount) || amount <= 0) return;
+
+      if (!authMode) {
+        guestBalance -= Number(amount);
+        updateUI();
+        alert('Withdrawal applied (guest mode - not saved)');
+        return;
+      }
+
+      try {
+        const phone = prompt('Enter your phone number:');
+        if (!phone) return;
+
+        const data = await apiFetch('/payments/withdraw', {
+          method: 'POST',
+          body: { amount: Number(amount), phone }
+        }, true);
+
+        currentUser.balance = data.newBalance;
+        updateUI();
+        alert('Withdrawal initiated. Check your phone for MTN payment.');
+      } catch (err) {
+        alert('Withdrawal failed: ' + err.message);
+      }
+    }
+
+    // ===== INIT =====
     updateUI();
-  } catch (err) {
-    console.error("startGame error", err);
-    alert("Failed to start round: " + (err.message || err));
-  }
-}
 
-async function cashOut() {
-  if (roundCrashed) { alert("Too late — round already crashed"); return; }
-  try {
-    const statusRes = await fetch(`${API}/game/status`);
-    const statusData = await statusRes.json().catch(()=>({}));
-    if (statusData.status === "crashed") {
-      alert("Round already crashed");
-      return;
-    }
-  } catch (e) { console.warn("status check failed", e); alert("Round status unclear. Please wait."); return; }
-
-  if (!running) { alert("No active round"); return; }
-
-  running = false;
-  document.getElementById("cashOutBtn").disabled = true;
-
-  try {
-    const res = await fetch(API + "/game/cashout", {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({})
-    });
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) throw new Error(data.error || "Cash out failed");
-
-    if (data.balance !== undefined) {
-      balance = Number(data.balance);
-      updateUI();
-    }
-
-    if (data.win) {
-      alert("You won ZMW " + Number(data.payout).toFixed(2));
-    } else {
-      alert("Crashed!");
-    }
-  } catch (err) {
-    alert(err.message || "Cash out failed");
-    return;
-  }
-
-  currentRoundId = null;
-  currentBet = 0;
-  roundCrashed = false;
-  renderMultiplierAndReset();
-  updateUI();
-}
-
-function renderMultiplierAndReset() {
-  renderMultiplier(1);
-}
-
-/* ----------------- Auth flows ----------------- */
-async function refreshBalance() {
-  const token = localStorage.getItem("token");
-  if (!token) { console.warn("No token for refreshBalance"); return; }
-  try {
-    const res = await fetch(API + "/users/me", { headers: { "Authorization": "Bearer " + token } });
-    const data = await res.json().catch(()=>({}));
-    if (res.ok) {
-      balance = Number(data.balance ?? balance);
-      user = data || user;
-      updateUI();
-    } else {
-      console.warn("refreshBalance non-ok", data);
-    }
-  } catch (err) { console.error("refreshBalance error", err); }
-}
-
-async function login() {
-  if (!loginPhone.value || !loginPassword.value) return alert("Phone and password required");
-  try {
-    const res = await fetch(API + "/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone: loginPhone.value, password: loginPassword.value })
-    });
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) throw new Error(data.error || "Login failed");
-    localStorage.setItem("token", data.token);
-    user = data.user ?? { guest: false };
-    balance = Number(data.user?.balance ?? data.balance ?? balance);
-    hideModals();
-    updateUI();
-    fetchPublicMetrics();
-    refreshBalance();
-    // reconnect socket with new token
-    try { if (socket && socket.disconnect) socket.disconnect(); } catch (e) {}
-    connectSocket();
-  } catch (err) { alert(err.message || "Login failed"); }
-}
-
-async function register() {
-  if (!regName.value || !regPhone.value || !regPassword.value) return alert("Username, phone and password required");
-  try {
-    const res = await fetch(API + "/auth/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: regName.value, phone: regPhone.value, password: regPassword.value })
-    });
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) throw new Error(data.error || "Register failed");
-    localStorage.setItem("token", data.token);
-    user = data.user ?? { guest: false };
-    balance = Number(data.user?.balance ?? data.balance ?? balance);
-    hideModals();
-    updateUI();
-    fetchPublicMetrics();
-    refreshBalance();
-    try { if (socket && socket.disconnect) socket.disconnect(); } catch (e) {}
-    connectSocket();
-  } catch (err) { alert(err.message || "Register failed"); }
-}
-
-function logout() {
-  user = { guest: true };
-  const stored = localStorage.getItem("guest_balance");
-  balance = stored !== null ? Number(stored) : 10;
-  localStorage.removeItem("token");
-  updateUI();
-  fetchPublicMetrics();
-  try { if (socket && socket.disconnect) socket.disconnect(); } catch (e) {}
-  connectSocket();
-}
-
-function useGuest() {
-  user = { guest: true };
-  const stored = localStorage.getItem("guest_balance");
-  balance = stored !== null ? Number(stored) : 10;
-  updateUI();
-}
-
-/* ----------------- Wallet actions ----------------- */
-async function deposit() {
-  const amt = prompt("Enter deposit amount");
-  if (!amt || isNaN(amt) || amt <= 0) return alert("Invalid amount");
-  if (user.guest) {
-    balance += Number(amt);
-    localStorage.setItem("guest_balance", balance);
-    updateUI();
-    alert("Deposit succeeded (guest)");
-    return;
-  }
-  const token = localStorage.getItem("token");
-  if (!token) return alert("You must be logged in to deposit");
-  try {
-    const res = await fetch(API + "/users/deposit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-      body: JSON.stringify({ amount: Number(amt) })
-    });
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) return alert(data.error || `Deposit failed (HTTP ${res.status})`);
-    if (data.balance !== undefined) { balance = Number(data.balance); user = data; updateUI(); } else await refreshBalance();
-    alert("Deposit succeeded");
-    fetchPublicMetrics();
-  } catch (err) { console.error("deposit error", err); alert("Network error during deposit"); }
-}
-
-async function withdraw() {
-  const amt = prompt("Enter withdraw amount");
-  if (!amt || isNaN(amt) || amt <= 0) return alert("Invalid amount");
-  if (user.guest) {
-    if (amt > balance) return alert("Insufficient balance");
-    balance -= Number(amt);
-    localStorage.setItem("guest_balance", balance);
-    updateUI();
-    alert("Withdraw succeeded (guest)");
-    return;
-  }
-  const token = localStorage.getItem("token");
-  if (!token) return alert("You must be logged in to withdraw");
-  try {
-    const res = await fetch(API + "/users/withdraw", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-      body: JSON.stringify({ amount: Number(amt) })
-    });
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) return alert(data.error || `Withdraw failed (HTTP ${res.status})`);
-    if (data.balance !== undefined) { balance = Number(data.balance); user = data; updateUI(); } else await refreshBalance();
-    alert("Withdraw succeeded");
-    fetchPublicMetrics();
-  } catch (err) { console.error("withdraw error", err); alert("Network error during withdraw"); }
-}
-
-/* ----------------- History & Round Detail (with verify) ----------------- */
-async function loadHistory(limit = 20) {
-  try {
-    document.getElementById('historyHint').textContent = 'Loading...';
-    const res = await fetch(`${API}/game/history?limit=${limit}`);
-    const data = await res.json().catch(()=>null);
-    const container = document.getElementById('historyContainer');
-    container.innerHTML = '';
-    if (!res.ok || !data || !Array.isArray(data.rounds)) {
-      container.innerHTML = '<div class="small">Unable to load history</div>';
-      document.getElementById('historyHint').textContent = '';
-      return;
-    }
-    if (!data.rounds.length) {
-      container.innerHTML = '<div class="small">No rounds recorded yet</div>';
-      document.getElementById('historyHint').textContent = '';
-      return;
-    }
-    data.rounds.forEach(r => {
-      const el = document.createElement('div');
-      el.className = 'history-item';
-      const started = r.started_at ? new Date(r.started_at).toLocaleString() : 'n/a';
-      const crash = r.crash_point ? Number(r.crash_point).toFixed(2) + 'x' : 'running';
-      el.innerHTML = `<div class="meta-row"><strong>${r.round_id.slice(0,8)}</strong><span class="badge">${crash}</span></div><div class="small">${started}</div>`;
-      el.onclick = () => showRoundDetails(r.round_id);
-      container.appendChild(el);
-    });
-    document.getElementById('historyHint').textContent = `${data.rounds.length} rounds`;
-  } catch (err) {
-    console.error("loadHistory error", err);
-    document.getElementById('historyHint').textContent = '';
-    document.getElementById('historyContainer').innerHTML = '<div class="small">Error loading history</div>';
-  }
-}
-
-async function showRoundDetails(roundId) {
-  try {
-    document.getElementById('roundTitle').textContent = 'Round ' + roundId.slice(0,12);
-    document.getElementById('roundBody').innerHTML = '<div class="small">Loading...</div>';
-    showRoundModal();
-    const res = await fetch(`${API}/game/rounds/${encodeURIComponent(roundId)}`);
-    const data = await res.json().catch(()=>null);
-    if (!res.ok || !data.round) {
-      document.getElementById('roundBody').innerHTML = '<div class="small">Unable to load round details</div>';
-      verifyBtn.classList.add('hidden');
-      return;
-    }
-    const r = data.round;
-    const bets = data.bets || [];
-    const started = r.started_at ? new Date(r.started_at).toLocaleString() : 'n/a';
-    const ended = r.ended_at ? new Date(r.ended_at).toLocaleString() : 'n/a';
-    let html = `<div class="small"><b>Started:</b> ${started}<br/><b>Ended:</b> ${ended}<br/><b>Crash:</b> ${r.crash_point ?? 'running'}</div>`;
-    html += `<h4 style="margin-top:8px;">Bets (${bets.length})</h4>`;
-    if (!bets.length) html += '<div class="small">No bets recorded for this round</div>';
-    else {
-      html += '<div class="small">';
-      bets.forEach(b => {
-        html += `<div style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.03);"><strong>${b.user_id ? b.user_id.slice(0,8) : 'guest'}</strong> - ${Number(b.bet_amount).toFixed(2)} ZMW <span class="small">(${b.status})</span>`;
-        if (b.payout !== null && typeof b.payout !== 'undefined') html += `<div class="small">payout: ${Number(b.payout).toFixed(2)}</div>`;
-        html += '</div>';
+    // Close modals on backdrop click
+    [loginModal, registerModal].forEach(modal => {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) hideModals();
       });
-      html += '</div>';
-    }
-    // show commit info and verification status placeholder
-    html += `<div style="margin-top:12px;"><strong>Commit idx:</strong> ${r.commit_idx ?? 'n/a'} &nbsp; <strong>Seed hash:</strong> ${r.server_seed_hash ? r.server_seed_hash.slice(0,24) + '...' : 'n/a'}</div>`;
-    document.getElementById('roundBody').innerHTML = html;
+    });
 
-    // Show verify button if seed revealed
-    if (r.server_seed) {
-      verifyBtn.dataset.roundId = roundId;
-      verifyBtn.classList.remove('hidden');
-    } else {
-      verifyBtn.classList.add('hidden');
-    }
-  } catch (err) {
-    console.error("showRoundDetails error", err);
-    document.getElementById('roundBody').innerHTML = '<div class="small">Error loading details</div>';
-    verifyBtn.classList.add('hidden');
-  }
-}
+    // Restore session on load
+    (async () => {
+      const token = localStorage.getItem(TOKEN_KEY);
+      if (token) {
+        try {
+          const user = await apiFetch('/users/me', { method: 'GET' }, true);
+          currentUser = user;
+          authMode = 'server';
+          updateUI();
+        } catch (err) {
+          localStorage.removeItem(TOKEN_KEY);
+          updateUI();
+        }
+      }
+    })();
 
-/* ----------------- Provably-fair verification ----------------- */
-async function verifyCurrentRound() {
-  const roundId = verifyBtn.dataset.roundId;
-  if (!roundId) return alert('No round selected');
-  try {
-    const res = await fetch(`${API}/game/reveal/${encodeURIComponent(roundId)}`);
-    const data = await res.json().catch(()=>null);
-    if (!res.ok || !data) return alert((data && data.error) || 'Reveal not available');
-    const { serverSeed, serverSeedHash, crashPoint } = data;
-
-    // compute sha256(serverSeed) and compare
-    const computedHash = await sha256Hex(serverSeed);
-    const hashMatch = (computedHash === serverSeedHash);
-    // compute HMAC(serverSeed, '') and map to crash
-    const hmacHex = await hmacSha256Hex(serverSeed, '');
-    const computedCrash = computeCrashFromHashHex(hmacHex);
-
-    let msg = `Seed hash matches: ${hashMatch ? 'YES' : 'NO'}\nComputed crash: ${computedCrash}x\nRecorded crash: ${Number(crashPoint).toFixed(2)}x`;
-    if (Math.abs(computedCrash - Number(crashPoint)) < 0.01) {
-      msg += '\nVerification: OK';
-    } else {
-      msg += '\nVerification: MISMATCH';
-    }
-    alert(msg);
-  } catch (e) {
-    console.error('verify error', e);
-    alert('Verification failed: ' + (e && e.message ? e.message : e));
-  }
-}
-
-/* ----------------- Metrics / header info ----------------- */
-async function fetchPublicMetrics() {
-  try {
-    const res = await fetch(`${API}/metrics/public`);
-    const m = await res.json().catch(()=>null);
-    if (res.ok && m) {
-      document.getElementById('metrics').textContent = `Bets:${m.totalBets} Vol:${m.totalVolume} Payouts:${m.totalPayouts}`;
-    } else {
-      document.getElementById('metrics').textContent = '';
-    }
-  } catch (e) {
-    document.getElementById('metrics').textContent = '';
-  }
-}
-fetchPublicMetrics();
-setInterval(fetchPublicMetrics, 60_000);
-
-/* ----------------- Utility: small toast ----------------- */
-function showToast(msg) {
-  try {
-    alert(msg);
-  } catch(e) {}
-}
-
-/* ----------------- Initial hydration ----------------- */
-updateUI();
-refreshBalance();
-
-/* ----------------- Close modals on backdrop click ----------------- */
-document.querySelectorAll('.modal').forEach(m => {
-  m.addEventListener('click', (ev) => { if (ev.target === m) m.style.display = 'none'; });
-});
+    // Auto-start game rounds (poll for status)
+    setInterval(async () => {
+      if (!running && !crashed) {
+        try {
+          const status = await apiFetch('/game/status', { method: 'GET' }, false);
+          if (status && status.status === 'running' && !roundActive) {
+            roundActive = true;
+            document.getElementById('status').textContent = '🎮 Ready to play!';
+            document.getElementById('multiplier').textContent = '1.00x';
+            // Update multiplier in real-time
+            const updateMult = setInterval(() => {
+              if (status && status.startedAt) {
+                const elapsed = (Date.now() - Number(status.startedAt)) / 1000;
+                const mult = 1 + elapsed * 0.5;
+                document.getElementById('multiplier').textContent = mult.toFixed(2) + 'x';
+              }
+            }, 100);
+          }
+        } catch (err) {
+          // Silent fail
+        }
+      }
+    }, 1000);
   </script>
 </body>
 </html>

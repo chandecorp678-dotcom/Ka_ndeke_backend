@@ -310,13 +310,38 @@
 
     // ===== AUTH =====
     async function register() {
-      const name = document.getElementById('regName').value.trim();
-      const phone = document.getElementById('regPhone').value.trim();
-      const password = document.getElementById('regPassword').value.trim();
-      const agreed = document.getElementById('agreeTerms').checked;
+      // Get input elements
+      const nameEl = document.getElementById('regName');
+      const phoneEl = document.getElementById('regPhone');
+      const passwordEl = document.getElementById('regPassword');
+      const termsEl = document.getElementById('agreeTerms');
 
-      if (!name || !phone || !password) {
-        showMessage('registerMessage', 'Please fill all fields', true);
+      // Get values and trim
+      const name = (nameEl.value || '').toString().trim();
+      const phone = (phoneEl.value || '').toString().trim();
+      const password = (passwordEl.value || '').toString().trim();
+      const agreed = termsEl.checked;
+
+      console.log('Register values:', { name: name.length, phone: phone.length, password: password.length, agreed });
+
+      // Validate
+      if (!name || name.length === 0) {
+        showMessage('registerMessage', 'Full name is required', true);
+        return;
+      }
+
+      if (name.length < 2) {
+        showMessage('registerMessage', 'Name must be at least 2 characters', true);
+        return;
+      }
+
+      if (!phone || phone.length === 0) {
+        showMessage('registerMessage', 'Phone number is required', true);
+        return;
+      }
+
+      if (!password || password.length === 0) {
+        showMessage('registerMessage', 'Password is required', true);
         return;
       }
 
@@ -333,7 +358,7 @@
       try {
         const data = await apiFetch('/auth/register', {
           method: 'POST',
-          body: { username: name, phone, password }
+          body: { username: name, phone: phone, password: password }
         }, false);
 
         localStorage.setItem(TOKEN_KEY, data.token);
@@ -344,23 +369,37 @@
         showMessage('registerMessage', 'Registration successful!', false);
         setTimeout(hideModals, 1000);
       } catch (err) {
-        showMessage('registerMessage', err.message, true);
+        console.error('Register error:', err);
+        showMessage('registerMessage', err.message || 'Registration failed', true);
       }
     }
 
     async function login() {
-      const phone = document.getElementById('loginPhone').value.trim();
-      const password = document.getElementById('loginPassword').value.trim();
+      // Get input elements
+      const phoneEl = document.getElementById('loginPhone');
+      const passwordEl = document.getElementById('loginPassword');
 
-      if (!phone || !password) {
-        showMessage('loginMessage', 'Please fill all fields', true);
+      // Get values and trim
+      const phone = (phoneEl.value || '').toString().trim();
+      const password = (passwordEl.value || '').toString().trim();
+
+      console.log('Login values:', { phone: phone.length, password: password.length });
+
+      // Validate
+      if (!phone || phone.length === 0) {
+        showMessage('loginMessage', 'Phone number is required', true);
+        return;
+      }
+
+      if (!password || password.length === 0) {
+        showMessage('loginMessage', 'Password is required', true);
         return;
       }
 
       try {
         const data = await apiFetch('/auth/login', {
           method: 'POST',
-          body: { phone, password }
+          body: { phone: phone, password: password }
         }, false);
 
         localStorage.setItem(TOKEN_KEY, data.token);
@@ -371,7 +410,8 @@
         showMessage('loginMessage', 'Login successful!', false);
         setTimeout(hideModals, 1000);
       } catch (err) {
-        showMessage('loginMessage', err.message, true);
+        console.error('Login error:', err);
+        showMessage('loginMessage', err.message || 'Login failed', true);
       }
     }
 

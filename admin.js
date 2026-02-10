@@ -7,12 +7,10 @@ const { sendError } = require("./apiResponses");
 const { runTransaction } = require("./dbHelper");
 const metrics = require("./metrics");
 
-// Log on require
 logger.info("admin.routes.load_attempt", { ts: new Date().toISOString() });
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-this-admin-token";
 
-// Middleware to require admin token
 function requireAdmin(req, res, next) {
   const t = req.get("x-admin-token") || "";
   if (!t || t !== ADMIN_TOKEN) {
@@ -21,7 +19,52 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-/* =================== INIT DB (FIXED) =================== */
+/* =================== RESET DB (DROP ALL TABLES) =================== */
+router.post("/reset-db", requireAdmin, async (req, res) => {
+  const db = req.app.locals.db;
+  if (!db || typeof db.query !== "function") {
+    logger.error("admin.reset_db.no_db_connection");
+    return sendError(res, 500, "Database not initialized on server");
+  }
+
+  try {
+    logger.info("admin.reset_db.starting");
+
+    // DROP all tables in correct order (respect foreign keys)
+    const dropStatements = [
+      `DROP TABLE IF EXISTS self_exclusion CASCADE`,
+      `DROP TABLE IF EXISTS legal_compliance CASCADE`,
+      `DROP TABLE IF EXISTS kill_switch_log CASCADE`,
+      `DROP TABLE IF EXISTS monitoring_snapshots CASCADE`,
+      `DROP TABLE IF EXISTS payments CASCADE`,
+      `DROP TABLE IF EXISTS bets CASCADE`,
+      `DROP TABLE IF EXISTS seed_commits CASCADE`,
+      `DROP TABLE IF EXISTS rounds CASCADE`,
+      `DROP TABLE IF EXISTS users CASCADE`
+    ];
+
+    for (const dropStmt of dropStatements) {
+      await db.query(dropStmt);
+      logger.info("admin.reset_db.dropped_table", { statement: dropStmt.split("IF EXISTS")[1]?.trim() });
+    }
+
+    logger.info("admin.reset_db.all_tables_dropped");
+    return res.json({ 
+      ok: true, 
+      message: "All tables dropped successfully. Run /api/admin/init-db next to recreate them.",
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (err) {
+    logger.error("admin.reset_db.error", { 
+      message: err && err.message ? err.message : String(err),
+      stack: err && err.stack ? err.stack : undefined
+    });
+    return sendError(res, 500, "Reset DB failed", err && err.message ? err.message : String(err));
+  }
+});
+
+/* =================== INIT DB (RECREATE ALL TABLES) =================== */
 router.post("/init-db", requireAdmin, async (req, res) => {
   const db = req.app.locals.db;
   if (!db || typeof db.query !== "function") {
@@ -67,7 +110,7 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     `);
     logger.info("admin.init_db.rounds_table_created");
 
-    // 3. Create bets table (FIXED - includes claimed_at)
+    // 3. Create bets table (WITH claimed_at column defined)
     await db.query(`
       CREATE TABLE IF NOT EXISTS bets (
         id UUID PRIMARY KEY,
@@ -201,7 +244,7 @@ router.post("/init-db", requireAdmin, async (req, res) => {
     logger.info("admin.init_db.completed");
     return res.json({ 
       ok: true, 
-      message: "All tables and indexes created/updated successfully",
+      message: "All tables and indexes created successfully",
       timestamp: new Date().toISOString()
     });
 

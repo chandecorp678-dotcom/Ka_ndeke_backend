@@ -23,19 +23,21 @@
     #balance{color:var(--white);font-weight:600}
 
     .game-box{margin:12px;border-radius:12px;background:linear-gradient(180deg,#12345a,#0a2b46);padding:20px;min-height:300px;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-direction:column}
-    .game-content{display:flex;align-items:center;gap:30px;width:100%}
-    #multiplier{font-size:48px;font-weight:800;color:var(--accent);margin:0;min-width:150px;text-align:center}
+    .game-content{display:flex;align-items:center;gap:30px;width:100%;justify-content:center}
+    #multiplier{font-size:48px;font-weight:800;color:var(--accent);margin:0;min-width:150px;text-align:center;font-family:monospace}
     #plane{width:120px;height:60px;transition:all 0.1s linear;will-change:transform}
-    #status{font-size:16px;color:var(--muted);margin-top:20px;text-align:center;width:100%}
+    #status{font-size:16px;color:var(--muted);margin-top:20px;text-align:center;width:100%;min-height:30px}
 
     .controls{padding:12px;display:flex;flex-direction:column;gap:10px;align-items:stretch}
     .row{display:flex;gap:8px;width:100%;align-items:center}
     input[type=number],input[type=text],input[type=password]{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:#071a2b;color:var(--white);flex:1;font-size:16px}
     button{cursor:pointer;border:none;border-radius:10px;padding:10px 14px;font-weight:700;transition:all 0.2s;font-size:14px}
     .primary{background:var(--accent);color:#000;padding:12px 18px;flex:1}
-    .primary:hover{opacity:0.9}
+    .primary:hover:not(:disabled){opacity:0.9}
+    .primary:disabled{opacity:0.5;cursor:not-allowed}
     .danger{background:var(--danger);color:#fff;padding:12px 18px;flex:1}
-    .danger:hover{opacity:0.9}
+    .danger:hover:not(:disabled){opacity:0.9}
+    .danger:disabled{opacity:0.5;cursor:not-allowed}
     .btn-secondary{background:rgba(255,255,255,0.1);color:var(--white)}
     .btn-secondary:hover{background:rgba(255,255,255,0.15)}
 
@@ -97,7 +99,7 @@
           <circle cx="46" cy="11" r="2.2" fill="rgba(0,0,0,0.6)"/>
         </svg>
       </div>
-      <div id="status">⏳ Waiting for round to start...</div>
+      <div id="status">⏳ Checking for active round...</div>
     </section>
 
     <section class="controls">
@@ -165,6 +167,8 @@
     let gameTimer = null;
     let crashed = false;
     let roundActive = false;
+    let currentRoundStartedAt = null;
+    let statusPoller = null;
 
     // ===== DOM =====
     const loginModal = document.getElementById('loginModal');
@@ -172,7 +176,6 @@
     const loginBtn = document.getElementById('loginBtn');
     const registerBtn = document.getElementById('registerBtn');
     const logoutBtn = document.getElementById('logoutBtn');
-    const gameBox = document.getElementById('gameBox');
 
     // ===== API HELPER =====
     async function apiFetch(path, opts = {}, withAuth = true) {
@@ -252,6 +255,58 @@
       el.textContent = message;
       el.className = `modal-message ${isError ? 'error' : 'success'}`;
     }
+
+    // ===== ROUND STATUS POLLING =====
+    async function pollRoundStatus() {
+      try {
+        const status = await apiFetch('/game/status', { method: 'GET' }, false);
+        
+        if (!status) return;
+
+        // Calculate live multiplier from startedAt
+        let liveMultiplier = 1.0;
+        if (status.startedAt && status.status === 'running') {
+          const startedMs = Number(status.startedAt);
+          const elapsedMs = Date.now() - startedMs;
+          const elapsedSec = elapsedMs / 1000;
+          liveMultiplier = 1 + (elapsedSec * 0.5); // grows 0.5x per second
+        } else if (status.multiplier) {
+          liveMultiplier = Number(status.multiplier);
+        }
+
+        // Update UI
+        document.getElementById('multiplier').textContent = liveMultiplier.toFixed(2) + 'x';
+        
+        // Update plane position
+        const planeEl = document.getElementById('plane');
+        const translateX = Math.min(300, liveMultiplier * 30);
+        const translateY = liveMultiplier * -20;
+        planeEl.style.transform = `translateX(${translateX}px) translateY(${translateY}px) rotate(${liveMultiplier * 5}deg)`;
+
+        // If round just started
+        if (status.status === 'running' && !roundActive) {
+          roundActive = true;
+          currentRoundStartedAt = status.startedAt;
+          document.getElementById('status').textContent = '🎮 Round active! Place your bet.';
+        }
+
+        // If round crashed
+        if (status.status === 'crashed' && roundActive) {
+          roundActive = false;
+          crashed = true;
+          running = false;
+          document.getElementById('status').textContent = `💥 Round crashed at ${liveMultiplier.toFixed(2)}x`;
+          document.getElementById('cashOutBtn').disabled = true;
+          document.getElementById('playBtn').disabled = false;
+        }
+
+      } catch (err) {
+        // Silently fail - continue polling
+      }
+    }
+
+    // Start polling for round status
+    statusPoller = setInterval(pollRoundStatus, 250); // Poll every 250ms
 
     // ===== AUTH =====
     async function register() {
@@ -355,7 +410,6 @@
         multiplier = 1.0;
         running = true;
         crashed = false;
-        roundActive = true;
 
         if (authMode === 'server') {
           currentUser.balance = data.balance;
@@ -366,10 +420,9 @@
         updateUI();
         document.getElementById('cashOutBtn').disabled = false;
         document.getElementById('playBtn').disabled = true;
-        document.getElementById('status').textContent = '✈️ Game started...';
+        document.getElementById('status').textContent = '✈️ Bet placed! Waiting...';
         document.getElementById('multiplier').textContent = '1.00x';
 
-        simulateGame();
       } catch (err) {
         alert('Failed to start round: ' + err.message);
       }
@@ -386,7 +439,7 @@
         }, true);
 
         running = false;
-        clearInterval(gameTimer);
+        crashed = true;
         document.getElementById('cashOutBtn').disabled = true;
         document.getElementById('playBtn').disabled = false;
 
@@ -398,42 +451,13 @@
             guestBalance += payout;
           }
           updateUI();
-          alert(`✅ Won K ${payout.toFixed(2)}!`);
-          document.getElementById('status').textContent = `✅ Cashed out at ${data.multiplier}x`;
+          document.getElementById('status').textContent = `✅ Won K ${payout.toFixed(2)}!`;
         } else {
-          alert(`💥 Crashed at ${data.multiplier}x`);
-          document.getElementById('status').textContent = `💥 Lost K ${currentBet}`;
+          document.getElementById('status').textContent = `💥 Crashed!`;
         }
       } catch (err) {
         alert('Cash out failed: ' + err.message);
       }
-    }
-
-    function simulateGame() {
-      const crashPoint = 1.2 + Math.random() * 5;
-      let elapsed = 0;
-
-      gameTimer = setInterval(() => {
-        elapsed += 0.05;
-        multiplier = 1 + elapsed;
-        document.getElementById('multiplier').textContent = multiplier.toFixed(2) + 'x';
-
-        const planeEl = document.getElementById('plane');
-        planeEl.style.transform = `translateX(${Math.min(200, elapsed * 30)}px) translateY(${-elapsed * 20}px) rotate(${elapsed * 5}deg)`;
-
-        if (multiplier >= crashPoint) {
-          clearInterval(gameTimer);
-          crashed = true;
-          running = false;
-          document.getElementById('cashOutBtn').disabled = true;
-          document.getElementById('playBtn').disabled = false;
-          document.getElementById('status').textContent = `💥 CRASH at ${crashPoint.toFixed(2)}x`;
-          if (authMode === 'server') {
-            currentUser.balance -= currentBet;
-          }
-          updateUI();
-        }
-      }, 100);
     }
 
     async function deposit() {
@@ -448,12 +472,9 @@
       }
 
       try {
-        const phone = prompt('Enter your phone number:');
-        if (!phone) return;
-
         await apiFetch('/payments/deposit', {
           method: 'POST',
-          body: { amount: Number(amount), phone }
+          body: { amount: Number(amount), phone: currentUser.phone }
         }, true);
 
         alert('Deposit requested. Check your phone for MTN prompt.');
@@ -474,12 +495,9 @@
       }
 
       try {
-        const phone = prompt('Enter your phone number:');
-        if (!phone) return;
-
         const data = await apiFetch('/payments/withdraw', {
           method: 'POST',
-          body: { amount: Number(amount), phone }
+          body: { amount: Number(amount), phone: currentUser.phone }
         }, true);
 
         currentUser.balance = data.newBalance;
@@ -515,30 +533,6 @@
         }
       }
     })();
-
-    // Auto-start game rounds (poll for status)
-    setInterval(async () => {
-      if (!running && !crashed) {
-        try {
-          const status = await apiFetch('/game/status', { method: 'GET' }, false);
-          if (status && status.status === 'running' && !roundActive) {
-            roundActive = true;
-            document.getElementById('status').textContent = '🎮 Ready to play!';
-            document.getElementById('multiplier').textContent = '1.00x';
-            // Update multiplier in real-time
-            const updateMult = setInterval(() => {
-              if (status && status.startedAt) {
-                const elapsed = (Date.now() - Number(status.startedAt)) / 1000;
-                const mult = 1 + elapsed * 0.5;
-                document.getElementById('multiplier').textContent = mult.toFixed(2) + 'x';
-              }
-            }, 100);
-          }
-        } catch (err) {
-          // Silent fail
-        }
-      }
-    }, 1000);
   </script>
 </body>
 </html>

@@ -34,7 +34,7 @@ try {
   admin = require("./admin");
   router.use("/admin", admin);
 } catch (e) {
-  console.warn("admin.js not loaded. Admin endpoints unavailable.");
+  console.warn("admin.js not loaded.");
 }
 
 // mount game routes (PRODUCTION)

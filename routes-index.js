@@ -3,6 +3,7 @@ const router = express.Router();
 
 const users = require("./users");
 const payments = require("./payments");
+const legalRoutes = require("./legalCompliance-routes");
 const monitoringRoutes = require("./monitoring-routes");
 const { optionalAuth } = require("./auth");
 
@@ -20,6 +21,9 @@ router.use("/", users);
 
 // mount payment endpoints (Phase 9.3)
 router.use("/payments", payments);
+
+// mount legal compliance endpoints (Phase 11)
+router.use("/legal", legalRoutes);
 
 // mount monitoring endpoints (Phase 10)
 router.use("/admin/monitoring", monitoringRoutes);

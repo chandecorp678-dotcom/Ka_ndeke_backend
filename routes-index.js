@@ -3,6 +3,7 @@ const router = express.Router();
 
 const users = require("./users");
 const payments = require("./payments");
+const monitoringRoutes = require("./monitoring-routes");
 const { optionalAuth } = require("./auth");
 
 // health endpoint for frontend probe
@@ -19,6 +20,9 @@ router.use("/", users);
 
 // mount payment endpoints (Phase 9.3)
 router.use("/payments", payments);
+
+// mount monitoring endpoints (Phase 10)
+router.use("/admin/monitoring", monitoringRoutes);
 
 // mount admin routes (optional)
 let admin;

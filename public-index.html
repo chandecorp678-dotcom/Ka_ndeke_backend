@@ -224,6 +224,7 @@
       document.getElementById('loginPhone').value = '';
       document.getElementById('loginPassword').value = '';
       document.getElementById('loginMessage').textContent = '';
+      document.getElementById('loginMessage').className = 'modal-message';
       loginModal.classList.add('show');
     }
 
@@ -233,6 +234,7 @@
       document.getElementById('regPassword').value = '';
       document.getElementById('agreeTerms').checked = false;
       document.getElementById('registerMessage').textContent = '';
+      document.getElementById('registerMessage').className = 'modal-message';
       registerModal.classList.add('show');
     }
 
@@ -290,17 +292,20 @@
 
     statusPoller = setInterval(pollRoundStatus, 250);
 
-    // NO VALIDATION - ACCEPT EVERYTHING
+    // REGISTER - FIXED: Send all fields properly
     async function register() {
-      const name = document.getElementById('regName').value;
+      const username = document.getElementById('regName').value;
       const phone = document.getElementById('regPhone').value;
       const password = document.getElementById('regPassword').value;
       const agreed = document.getElementById('agreeTerms').checked;
 
+      console.log('Sending register:', { username, phone, password, agreed });
+
       try {
         const data = await apiFetch('/auth/register', {
           method: 'POST',
-          body: { username: name, phone: phone, password: password }
+          headers: { 'Content-Type': 'application/json' },
+          body: { username, phone, password }
         }, false);
 
         localStorage.setItem(TOKEN_KEY, data.token);
@@ -311,19 +316,23 @@
         showMessage('registerMessage', 'Registration successful!', false);
         setTimeout(hideModals, 1000);
       } catch (err) {
+        console.error('Register error:', err);
         showMessage('registerMessage', err.message || 'Registration failed', true);
       }
     }
 
-    // NO VALIDATION - ACCEPT EVERYTHING
+    // LOGIN - FIXED: Send all fields properly
     async function login() {
       const phone = document.getElementById('loginPhone').value;
       const password = document.getElementById('loginPassword').value;
 
+      console.log('Sending login:', { phone, password });
+
       try {
         const data = await apiFetch('/auth/login', {
           method: 'POST',
-          body: { phone: phone, password: password }
+          headers: { 'Content-Type': 'application/json' },
+          body: { phone, password }
         }, false);
 
         localStorage.setItem(TOKEN_KEY, data.token);
@@ -334,6 +343,7 @@
         showMessage('loginMessage', 'Login successful!', false);
         setTimeout(hideModals, 1000);
       } catch (err) {
+        console.error('Login error:', err);
         showMessage('loginMessage', err.message || 'Login failed', true);
       }
     }
@@ -423,52 +433,76 @@
     }
 
     async function deposit() {
-      const amount = prompt('Enter deposit amount:');
-      if (!amount || isNaN(amount) || amount <= 0) return;
+  const amountStr = prompt('Enter deposit amount:');
+  if (!amountStr) return;
+  
+  const amount = Number(amountStr);
+  
+  console.log('Deposit:', { amountStr, amount, isNaN: isNaN(amount) });
+  
+  if (isNaN(amount) || amount <= 0) {
+    alert('Enter a valid amount greater than 0');
+    return;
+  }
 
-      if (!authMode) {
-        guestBalance += Number(amount);
-        updateUI();
-        alert('Deposit applied (guest)');
-        return;
-      }
+  if (!authMode) {
+    guestBalance += amount;
+    updateUI();
+    alert('Deposit applied (guest)');
+    return;
+  }
 
-      try {
-        await apiFetch('/payments/deposit', {
-          method: 'POST',
-          body: { amount: Number(amount), phone: currentUser.phone }
-        }, true);
+  try {
+    const data = await apiFetch('/users/deposit', {
+      method: 'POST',
+      body: { amount: amount }
+    }, true);
 
-        alert('Deposit requested');
-      } catch (err) {
-        alert('Deposit failed: ' + err.message);
-      }
-    }
+    currentUser = data;
+    updateUI();
+    alert('Deposit successful!');
+  } catch (err) {
+    alert('Deposit failed: ' + err.message);
+  }
+}
 
     async function withdraw() {
-      const amount = prompt('Enter withdrawal amount:');
-      if (!amount || isNaN(amount) || amount <= 0) return;
+  const amountStr = prompt('Enter withdrawal amount:');
+  if (!amountStr) return;
+  
+  const amount = Number(amountStr);
+  
+  console.log('Withdraw:', { amountStr, amount, isNaN: isNaN(amount) });
+  
+  if (isNaN(amount) || amount <= 0) {
+    alert('Enter a valid amount greater than 0');
+    return;
+  }
 
-      if (!authMode) {
-        guestBalance -= Number(amount);
-        updateUI();
-        alert('Withdrawal applied (guest)');
-        return;
-      }
-
-      try {
-        const data = await apiFetch('/payments/withdraw', {
-          method: 'POST',
-          body: { amount: Number(amount), phone: currentUser.phone }
-        }, true);
-
-        currentUser.balance = data.newBalance;
-        updateUI();
-        alert('Withdrawal initiated');
-      } catch (err) {
-        alert('Withdrawal failed: ' + err.message);
-      }
+  if (!authMode) {
+    if (amount > guestBalance) {
+      alert('Insufficient balance');
+      return;
     }
+    guestBalance -= amount;
+    updateUI();
+    alert('Withdrawal applied (guest)');
+    return;
+  }
+
+  try {
+    const data = await apiFetch('/users/withdraw', {
+      method: 'POST',
+      body: { amount: amount }
+    }, true);
+
+    currentUser = data;
+    updateUI();
+    alert('Withdrawal successful!');
+  } catch (err) {
+    alert('Withdrawal failed: ' + err.message);
+  }
+}
 
     updateUI();
 

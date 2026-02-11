@@ -28,8 +28,8 @@ function sanitizeUser(row) {
     id: row.id,
     username: row.username,
     phone: row.phone,
-    balance: Number(row.balance || 0),
-    freeRounds: Number(row.freerounds || 0),
+    balance: Number(row.balance || 0),  // ✅ FORCE NUMBER
+    freeRounds: Number(row.freerounds || 0),  // ✅ FORCE NUMBER
     createdAt: row.createdat,
     updatedAt: row.updatedat,
   };
@@ -203,7 +203,7 @@ router.get("/users/me", requireAuth, (req, res) => {
   return res.json(req.user);
 });
 
-// ============ DEPOSIT ENDPOINT - NO RESTRICTIONS ON AMOUNT ============
+// ============ DEPOSIT ENDPOINT - FORCES NUMBER ============
 router.post("/users/deposit", requireAuth, express.json(), wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   const userId = req.user.id;
@@ -273,7 +273,7 @@ router.post("/users/deposit", requireAuth, express.json(), wrapAsync(async (req,
   }
 }));
 
-// ============ WITHDRAW ENDPOINT - WITH BALANCE CHECK ============
+// ============ WITHDRAW ENDPOINT - FORCES NUMBER & CHECKS BALANCE ============
 router.post("/users/withdraw", requireAuth, express.json(), wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   const userId = req.user.id;
@@ -290,7 +290,7 @@ router.post("/users/withdraw", requireAuth, express.json(), wrapAsync(async (req
   // Make amount positive
   amount = Math.abs(amount);
   
-  logger.info('withdraw.attempt', { userId, amount });
+  logger.info('withdraw.attempt', { userId, amount, requestBody: req.body });
 
   try {
     // First, check current balance
@@ -336,7 +336,8 @@ router.post("/users/withdraw", requireAuth, express.json(), wrapAsync(async (req
       userId, 
       withdrawAmount: amount, 
       previousBalance: currentBalance,
-      newBalance: updatedUser.balance 
+      newBalance: updatedUser.balance,
+      sanitizedUser: updatedUser
     });
 
     return res.json(updatedUser);

@@ -121,10 +121,16 @@ router.post("/auth/register",
     const db = req.app.locals.db;
     let { username, phone, password } = req.body || {};
 
-    username = sanitizeInput(username);
-    phone = sanitizeInput(phone);
-    password = sanitizeInput(password);
+phone = typeof phone === "string" ? phone.trim() : "";
+password = typeof password === "string" ? password : "";
 
+// ✅ Auto-generate username if missing
+if (!username || typeof username !== "string" || username.trim().length < 2) {
+  username = `user_${phone.replace(/\D/g, "").slice(-6)}`;
+} else {
+  username = username.trim();
+}
+    
     const usernameValidation = validateUsername(username);
     if (!usernameValidation.valid) return sendError(res, 400, usernameValidation.error);
 
@@ -168,11 +174,13 @@ router.post("/auth/login",
     const db = req.app.locals.db;
     let { phone, password } = req.body || {};
 
-    phone = sanitizeInput(phone);
-    password = sanitizeInput(password);
+    phone = typeof phone === "string" ? phone.trim() : "";
+		password = typeof password === "string" ? password : "";
 
-    if (!phone || !password) return sendError(res, 400, "phone and password required");
-
+if (phone.length === 0 || password.length === 0) {
+  return sendError(res, 400, "phone and password required");
+}
+    
     const rowRes = await db.query("SELECT * FROM users WHERE phone = $1", [phone]);
     const row = rowRes.rows[0];
     if (!row) return sendError(res, 401, "Invalid credentials");

@@ -304,7 +304,7 @@
 
     // ===== AUTH FUNCTIONS - FIXED =====
     async function register() {
-      const name = document.getElementById('regName').value.trim();
+      const name = document.getElementById('regName').value.trim().replace(/\s+/g,'_').toLowerCase();
       const phone = document.getElementById('regPhone').value.trim();
       const password = document.getElementById('regPassword').value.trim();
       const agreed = document.getElementById('agreeTerms').checked;
@@ -362,8 +362,8 @@
     }
 
     async function login() {
-      const phone = document.getElementById('loginPhone').value.trim();
-      const password = document.getElementById('loginPassword').value.trim();
+      const phone = document.getElementById('loginPhone').value;
+      const password = document.getElementById('loginPassword').value;
 
       console.log('Login values:', { phone, password: '***' });
 

@@ -12,61 +12,16 @@ const RateLimiter = require("./rateLimiter");
 
 const JWT_SECRET = process.env.JWT_SECRET || "change-this-secret";
 
-// Phase 9.2: Rate limiting for auth endpoints
 const registerLimiter = new RateLimiter({
-  maxRequests: Number(process.env.REGISTER_RATE_LIMIT_REQUESTS || 3),
-  windowMs: Number(process.env.REGISTER_RATE_LIMIT_WINDOW_MS || 3600000)
+  maxRequests: 999,
+  windowMs: 3600000
 });
 
 const loginLimiter = new RateLimiter({
-  maxRequests: Number(process.env.LOGIN_RATE_LIMIT_REQUESTS || 5),
-  windowMs: Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 900000)
+  maxRequests: 999,
+  windowMs: 900000
 });
 
-// Phase 9.1: Validation constants
-const MIN_PASSWORD_LENGTH = 6;
-const MAX_USERNAME_LENGTH = 100;
-// FIXED: Accept phone with or without + sign
-const PHONE_REGEX = /^(\+)?\d{7,14}$/;
-
-// Phase 9.1: Validate password strength
-function validatePassword(password) {
-  if (!password || password.length < MIN_PASSWORD_LENGTH) {
-    return { valid: false, error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` };
-  }
-  return { valid: true };
-}
-
-// Phase 9.1: Validate phone number format
-function validatePhone(phone) {
-  if (!phone || !PHONE_REGEX.test(phone)) {
-    return { valid: false, error: "Phone number format invalid. Use +260777123456 or 0777123456" };
-  }
-  return { valid: true };
-}
-
-// Phase 9.1: Validate username
-function validateUsername(username) {
-  if (!username || username.length < 2 || username.length > MAX_USERNAME_LENGTH) {
-    return { valid: false, error: `Username must be between 2 and ${MAX_USERNAME_LENGTH} characters` };
-  }
-  return { valid: true };
-}
-
-// Phase 9.1: Sanitize user input (prevent injection)
-function sanitizeInput(input) {
-  if (typeof input !== 'string') return input;
-  return input.trim().slice(0, 500);
-}
-
-// Phase 9.2: Sanitize numeric input (prevent negative/extreme values)
-function sanitizeNumeric(value, min = 0, max = Infinity) {
-  const num = Number(value);
-  if (isNaN(num)) return null;
-  return Math.max(min, Math.min(max, num));
-}
-
-// --------- Helper ---------
 function sanitizeUser(row) {
   if (!row) return null;
   return {
@@ -80,7 +35,6 @@ function sanitizeUser(row) {
   };
 }
 
-// --------- Health + Game helpers ---------
 router.get("/health", (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
@@ -108,99 +62,81 @@ router.post("/game/payout", express.json(), (req, res) => {
   }
 });
 
-// --------- Auth & User endpoints ---------
-
-// Phase 9.2: Register with rate limiting
+// REGISTER - NO VALIDATION
 router.post("/auth/register", 
   registerLimiter.middleware({
     keyFn: (req) => req.ip,
-    onLimitExceeded: (req, res) => sendError(res, 429, "Too many registration attempts. Please try again later.")
+    onLimitExceeded: (req, res) => sendError(res, 429, "Too many attempts")
   }),
   express.json(), 
   wrapAsync(async (req, res) => {
     const db = req.app.locals.db;
-    let { username, phone, password } = req.body || {};
-
-phone = typeof phone === "string" ? phone.trim() : "";
-password = typeof password === "string" ? password : "";
-
-// ✅ Auto-generate username if missing
-if (!username || typeof username !== "string" || username.trim().length < 2) {
-  username = `user_${phone.replace(/\D/g, "").slice(-6)}`;
-} else {
-  username = username.trim();
-}
-    
-    const usernameValidation = validateUsername(username);
-    if (!usernameValidation.valid) return sendError(res, 400, usernameValidation.error);
-
-    const phoneValidation = validatePhone(phone);
-    if (!phoneValidation.valid) return sendError(res, 400, phoneValidation.error);
-
-    const passwordValidation = validatePassword(password);
-    if (!passwordValidation.valid) return sendError(res, 400, passwordValidation.error);
-
-    const existing = await db.query("SELECT id FROM users WHERE phone = $1", [phone]);
-    if (existing.rows.length) return sendError(res, 409, "Phone already registered");
+    const { username, phone, password } = req.body || {};
 
     const id = uuidv4();
     const now = new Date().toISOString();
-    const password_hash = await bcrypt.hash(password, 10);
+    const password_hash = await bcrypt.hash(password || "", 10);
 
-    await db.query(
-      `INSERT INTO users (id, username, phone, password_hash, balance, freerounds, createdat, updatedat)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [id, username, phone, password_hash, 0, 0, now, now]
-    );
+    try {
+      await db.query(
+        `INSERT INTO users (id, username, phone, password_hash, balance, freerounds, createdat, updatedat)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [id, username || "user", phone || "", password_hash, 0, 0, now, now]
+      );
 
-    const userRow = await db.query("SELECT * FROM users WHERE id = $1", [id]);
-    const user = sanitizeUser(userRow.rows[0]);
-    const token = jwt.sign({ uid: id }, JWT_SECRET, { expiresIn: "30d" });
+      const userRow = await db.query("SELECT * FROM users WHERE id = $1", [id]);
+      const user = sanitizeUser(userRow.rows[0]);
+      const token = jwt.sign({ uid: id }, JWT_SECRET, { expiresIn: "30d" });
 
-    logger.info('auth.register.success', { userId: id, phone });
+      logger.info('auth.register.success', { userId: id, phone });
 
-    return res.status(201).json({ token, user });
+      return res.status(201).json({ token, user });
+    } catch (err) {
+      logger.error('auth.register.error', { message: err && err.message ? err.message : String(err) });
+      return sendError(res, 400, "Registration failed: " + (err && err.message ? err.message : "Unknown error"));
+    }
   })
 );
 
-// Phase 9.2: Login with rate limiting
+// LOGIN - NO VALIDATION
 router.post("/auth/login",
   loginLimiter.middleware({
     keyFn: (req) => req.ip,
-    onLimitExceeded: (req, res) => sendError(res, 429, "Too many login attempts. Please try again later.")
+    onLimitExceeded: (req, res) => sendError(res, 429, "Too many attempts")
   }),
   express.json(),
   wrapAsync(async (req, res) => {
     const db = req.app.locals.db;
-    let { phone, password } = req.body || {};
+    const { phone, password } = req.body || {};
 
-    phone = typeof phone === "string" ? phone.trim() : "";
-		password = typeof password === "string" ? password : "";
+    try {
+      const rowRes = await db.query("SELECT * FROM users WHERE phone = $1", [phone || ""]);
+      const row = rowRes.rows[0];
+      
+      if (!row) {
+        return sendError(res, 401, "Invalid credentials");
+      }
 
-if (phone.length === 0 || password.length === 0) {
-  return sendError(res, 400, "phone and password required");
-}
-    
-    const rowRes = await db.query("SELECT * FROM users WHERE phone = $1", [phone]);
-    const row = rowRes.rows[0];
-    if (!row) return sendError(res, 401, "Invalid credentials");
+      const ok = await bcrypt.compare(password || "", row.password_hash || "");
+      if (!ok) {
+        logger.warn('auth.login.invalid_password', { phone });
+        return sendError(res, 401, "Invalid credentials");
+      }
 
-    const ok = await bcrypt.compare(password, row.password_hash || "");
-    if (!ok) {
-      logger.warn('auth.login.invalid_password', { phone });
-      return sendError(res, 401, "Invalid credentials");
+      const user = sanitizeUser(row);
+      const token = jwt.sign({ uid: row.id }, JWT_SECRET, { expiresIn: "30d" });
+
+      logger.info('auth.login.success', { userId: row.id, phone });
+
+      return res.json({ token, user });
+    } catch (err) {
+      logger.error('auth.login.error', { message: err && err.message ? err.message : String(err) });
+      return sendError(res, 500, "Server error");
     }
-
-    const user = sanitizeUser(row);
-    const token = jwt.sign({ uid: row.id }, JWT_SECRET, { expiresIn: "30d" });
-
-    logger.info('auth.login.success', { userId: row.id, phone });
-
-    return res.json({ token, user });
   })
 );
 
-// --------- Auth middleware ---------
+// AUTH MIDDLEWARE
 async function requireAuth(req, res, next) {
   const db = req.app.locals.db;
   const auth = req.headers.authorization || "";
@@ -220,12 +156,11 @@ async function requireAuth(req, res, next) {
     req.userRaw = row;
     next();
   } catch (err) {
-    logger.error("Auth verify error", { message: err && err.message ? err.message : String(err), stack: err && err.stack ? err.stack : undefined });
-    return sendError(res, 401, "Invalid or expired token", err && err.message ? err.message : undefined);
+    logger.error("Auth verify error", { message: err && err.message ? err.message : String(err) });
+    return sendError(res, 401, "Invalid or expired token");
   }
 }
 
-// --------- User routes ---------
 router.get("/users/me", requireAuth, (req, res) => {
   return res.json(req.user);
 });
@@ -234,8 +169,7 @@ const changeBalanceHandler = wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   let delta = Number(req.body?.delta);
 
-  delta = sanitizeNumeric(delta, -1000000, 1000000);
-  if (delta === null) return sendError(res, 400, "delta must be a valid number");
+  if (isNaN(delta)) delta = 0;
 
   try {
     const rowRes = await db.query(
@@ -260,29 +194,19 @@ const changeBalanceHandler = wrapAsync(async (req, res) => {
 router.post("/users/balance/change", requireAuth, express.json(), changeBalanceHandler);
 
 router.post("/users/deposit", requireAuth, express.json(), wrapAsync(async (req, res) => {
-  let amount = Number(req.body?.amount);
-
-  amount = sanitizeNumeric(amount, 0.01, 1000000);
-  if (amount === null) return sendError(res, 400, "amount must be a valid number between 0.01 and 1000000");
-
+  let amount = Number(req.body?.amount) || 0;
   req.body = { delta: amount };
   return changeBalanceHandler(req, res);
 }));
 
 router.post("/users/withdraw", requireAuth, express.json(), wrapAsync(async (req, res) => {
-  let amount = Number(req.body?.amount);
-
-  amount = sanitizeNumeric(amount, 0.01, 1000000);
-  if (amount === null) return sendError(res, 400, "amount must be a valid number between 0.01 and 1000000");
-
+  let amount = Number(req.body?.amount) || 0;
   req.body = { delta: -Math.abs(amount) };
   return changeBalanceHandler(req, res);
 }));
 
-// --------- Public game history endpoints with caching ---------
-
-const HISTORY_CACHE_TTL_MS = Number(process.env.HISTORY_CACHE_TTL_MS || 15_000);
-const ROUND_CACHE_TTL_MS = Number(process.env.ROUND_CACHE_TTL_MS || 5_000);
+const HISTORY_CACHE_TTL_MS = 15000;
+const ROUND_CACHE_TTL_MS = 5000;
 
 function isAdminRequest(req) {
   const t = req.get("x-admin-token") || "";
@@ -292,41 +216,29 @@ function isAdminRequest(req) {
 router.get("/game/history", wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   if (!db) {
-    logger.error("game.history: DB not initialized");
     return sendError(res, 500, "Database not initialized");
   }
 
-  let limit = sanitizeNumeric(req.query.limit, 1, 200) || 50;
-  const force = String(req.query.force || '').toLowerCase() === '1' || String(req.query.force || '').toLowerCase() === 'true';
-  const since = req.query.since || null;
+  let limit = Number(req.query.limit) || 50;
+  if (limit > 200) limit = 200;
+  if (limit < 1) limit = 1;
 
-  const cacheKey = `history:limit=${limit}:since=${since || ''}`;
+  const cacheKey = `history:limit=${limit}`;
 
-  if (!isAdminRequest(req) && !force) {
+  if (!isAdminRequest(req)) {
     const cached = cache.get(cacheKey);
-    if (cached) {
-      return res.json(cached);
-    }
+    if (cached) return res.json(cached);
   }
 
   try {
-    let query = `
-      SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta, commit_idx
-      FROM rounds
-    `;
-    const params = [];
-    if (since) {
-      params.push(since);
-      query += ` WHERE started_at >= $${params.length}`;
-    }
-    query += ` ORDER BY started_at DESC LIMIT $${params.length + 1}`;
-    params.push(limit);
+    const rows = await db.query(
+      `SELECT round_id, crash_point, server_seed_hash, started_at, ended_at, meta, commit_idx
+       FROM rounds ORDER BY started_at DESC LIMIT $1`,
+      [limit]
+    );
 
-    const rows = await db.query(query, params);
     const payload = { rounds: rows.rows || [] };
-
-    if (!isAdminRequest(req) && !force) cache.set(cacheKey, payload, HISTORY_CACHE_TTL_MS);
-
+    if (!isAdminRequest(req)) cache.set(cacheKey, payload, HISTORY_CACHE_TTL_MS);
     return res.json(payload);
   } catch (err) {
     logger.error("game.history.error", { message: err && err.message ? err.message : String(err) });
@@ -338,29 +250,23 @@ router.get("/game/rounds/:roundId", wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   const roundId = req.params.roundId;
   if (!roundId) return sendError(res, 400, "roundId required");
-  if (!db) {
-    logger.error("game.rounds.detail: DB not initialized");
-    return sendError(res, 500, "Database not initialized");
-  }
+  if (!db) return sendError(res, 500, "Database not initialized");
 
-  const force = String(req.query.force || '').toLowerCase() === '1' || String(req.query.force || '').toLowerCase() === 'true';
   const cacheKey = `round:${roundId}`;
 
-  if (!isAdminRequest(req) && !force) {
+  if (!isAdminRequest(req)) {
     const cached = cache.get(cacheKey);
     if (cached) return res.json(cached);
   }
 
   try {
-    const r = await db.query(`SELECT round_id, crash_point, server_seed_hash, server_seed, commit_idx, started_at, ended_at, meta FROM rounds WHERE round_id = $1`, [roundId]);
+    const r = await db.query(`SELECT * FROM rounds WHERE round_id = $1`, [roundId]);
     if (!r.rowCount) return sendError(res, 404, "Round not found");
 
-    const bets = await db.query(`SELECT id, user_id, bet_amount, payout, status, meta, createdat FROM bets WHERE round_id = $1 ORDER BY createdat ASC`, [roundId]);
-
+    const bets = await db.query(`SELECT * FROM bets WHERE round_id = $1 ORDER BY createdat ASC`, [roundId]);
     const payload = { round: r.rows[0], bets: bets.rows || [] };
 
-    if (!isAdminRequest(req) && !force) cache.set(cacheKey, payload, ROUND_CACHE_TTL_MS);
-
+    if (!isAdminRequest(req)) cache.set(cacheKey, payload, ROUND_CACHE_TTL_MS);
     return res.json(payload);
   } catch (err) {
     logger.error("game.round.detail.error", { message: err && err.message ? err.message : String(err) });
@@ -386,11 +292,11 @@ router.get("/game/reveal/:roundId", wrapAsync(async (req, res) => {
   if (!roundId) return sendError(res, 400, "roundId required");
 
   try {
-    const r = await db.query(`SELECT round_id, server_seed_hash, server_seed, server_seed_revealed_at, started_at, ended_at, crash_point, commit_idx FROM rounds WHERE round_id = $1`, [roundId]);
+    const r = await db.query(`SELECT * FROM rounds WHERE round_id = $1`, [roundId]);
     if (!r.rowCount) return sendError(res, 404, "Round not found");
 
     const row = r.rows[0];
-    if (!row.server_seed) return sendError(res, 400, "Seed not revealed yet for this round");
+    if (!row.server_seed) return sendError(res, 400, "Seed not revealed yet");
 
     return res.json({
       roundId: row.round_id,

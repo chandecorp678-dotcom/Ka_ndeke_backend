@@ -203,54 +203,100 @@ router.get("/users/me", requireAuth, (req, res) => {
   return res.json(req.user);
 });
 
-const changeBalanceHandler = wrapAsync(async (req, res) => {
+// ============ DEPOSIT ENDPOINT - FIXED ============
+router.post("/users/deposit", requireAuth, express.json(), wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
-  let delta = Number(req.body?.delta);
+  const userId = req.user.id;
+  const rawAmount = req.body?.amount;
+  const amount = Number(rawAmount) || 0;
+  
+  logger.info('deposit.attempt', { userId, rawAmount, amount });
 
-  if (isNaN(delta)) delta = 0;
+  // Validate amount
+  if (isNaN(amount) || amount <= 0) {
+    return sendError(res, 400, "Invalid deposit amount");
+  }
 
   try {
+    // Update balance and get fresh user data from database
     const rowRes = await db.query(
       `UPDATE users
        SET balance = balance + $1, updatedat = NOW()
-       WHERE id = $2 AND (balance + $1) >= 0
+       WHERE id = $2
        RETURNING *`,
-      [delta, req.user.id]
+      [amount, userId]
     );
 
     if (!rowRes.rowCount) {
-      return sendError(res, 400, "Insufficient funds");
+      logger.warn('deposit.user_not_found', { userId });
+      return sendError(res, 404, "User not found");
     }
 
-    return res.json(sanitizeUser(rowRes.rows[0]));
+    const updatedUser = sanitizeUser(rowRes.rows[0]);
+    
+    logger.info('deposit.success', { 
+      userId, 
+      depositAmount: amount, 
+      newBalance: updatedUser.balance 
+    });
+
+    return res.json(updatedUser);
   } catch (err) {
-    logger.error("Balance change error:", { message: err && err.message ? err.message : String(err) });
-    return sendError(res, 500, "Server error");
+    logger.error("deposit.error", { 
+      userId, 
+      amount, 
+      message: err && err.message ? err.message : String(err) 
+    });
+    return sendError(res, 500, "Deposit failed: " + (err && err.message ? err.message : "Unknown error"));
   }
-});
-
-router.post("/users/balance/change", requireAuth, express.json(), changeBalanceHandler);
-
-// DEPOSIT - NO RESTRICTIONS, ACCEPT ANYTHING INCLUDING 0
-router.post("/users/deposit", requireAuth, express.json(), wrapAsync(async (req, res) => {
-  const rawAmount = req.body?.amount;
-  const amount = Number(rawAmount) || 0;
-  
-  logger.info('deposit.attempt', { rawAmount, amount });
-
-  req.body = { delta: amount };
-  return changeBalanceHandler(req, res);
 }));
 
-// WITHDRAW - NO MIN RESTRICTION, ONLY CHECKS BALANCE
+// ============ WITHDRAW ENDPOINT - FIXED ============
 router.post("/users/withdraw", requireAuth, express.json(), wrapAsync(async (req, res) => {
+  const db = req.app.locals.db;
+  const userId = req.user.id;
   const rawAmount = req.body?.amount;
   const amount = Number(rawAmount) || 0;
   
-  logger.info('withdraw.attempt', { rawAmount, amount });
+  logger.info('withdraw.attempt', { userId, rawAmount, amount });
 
-  req.body = { delta: -Math.abs(amount) };
-  return changeBalanceHandler(req, res);
+  // Validate amount
+  if (isNaN(amount) || amount <= 0) {
+    return sendError(res, 400, "Invalid withdrawal amount");
+  }
+
+  try {
+    // Update balance and get fresh user data from database
+    const rowRes = await db.query(
+      `UPDATE users
+       SET balance = balance - $1, updatedat = NOW()
+       WHERE id = $2 AND (balance - $1) >= 0
+       RETURNING *`,
+      [amount, userId]
+    );
+
+    if (!rowRes.rowCount) {
+      logger.warn('withdraw.insufficient_balance', { userId, requestedAmount: amount });
+      return sendError(res, 402, "Insufficient balance");
+    }
+
+    const updatedUser = sanitizeUser(rowRes.rows[0]);
+    
+    logger.info('withdraw.success', { 
+      userId, 
+      withdrawAmount: amount, 
+      newBalance: updatedUser.balance 
+    });
+
+    return res.json(updatedUser);
+  } catch (err) {
+    logger.error("withdraw.error", { 
+      userId, 
+      amount, 
+      message: err && err.message ? err.message : String(err) 
+    });
+    return sendError(res, 500, "Withdrawal failed: " + (err && err.message ? err.message : "Unknown error"));
+  }
 }));
 
 const HISTORY_CACHE_TTL_MS = 15000;

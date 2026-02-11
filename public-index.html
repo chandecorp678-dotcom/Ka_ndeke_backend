@@ -212,8 +212,11 @@
       const name = authMode ? (currentUser?.username || 'User') : 'Guest';
       const balance = authMode ? (currentUser?.balance || 0) : guestBalance;
 
-      document.getElementById('username').textContent = name;
-      document.getElementById('balance').textContent = 'K ' + Number(balance).toFixed(2);
+      const balanceElement = document.getElementById('balance');
+      const usernameElement = document.getElementById('username');
+      
+      usernameElement.textContent = name;
+      balanceElement.textContent = 'K ' + Number(balance).toFixed(2);
 
       loginBtn.classList.toggle('hidden', !!authMode);
       registerBtn.classList.toggle('hidden', !!authMode);
@@ -292,7 +295,7 @@
 
     statusPoller = setInterval(pollRoundStatus, 250);
 
-    // REGISTER - FIXED: Send all fields properly
+    // REGISTER
     async function register() {
       const username = document.getElementById('regName').value;
       const phone = document.getElementById('regPhone').value;
@@ -321,7 +324,7 @@
       }
     }
 
-    // LOGIN - FIXED: Send all fields properly
+    // LOGIN
     async function login() {
       const phone = document.getElementById('loginPhone').value;
       const password = document.getElementById('loginPassword').value;
@@ -432,77 +435,129 @@
       }
     }
 
+    // ============ DEPOSIT - FIXED ============
     async function deposit() {
-  const amountStr = prompt('Enter deposit amount:');
-  if (!amountStr) return;
-  
-  const amount = Number(amountStr);
-  
-  console.log('Deposit:', { amountStr, amount, isNaN: isNaN(amount) });
-  
-  if (isNaN(amount) || amount <= 0) {
-    alert('Enter a valid amount greater than 0');
-    return;
-  }
+      const amountStr = prompt('Enter deposit amount:');
+      if (!amountStr) return;
+      
+      const amount = Number(amountStr);
+      
+      console.log('🔍 Deposit attempt:', { amount, authMode, currentUser });
+      
+      if (isNaN(amount) || amount <= 0) {
+        alert('Enter a valid amount greater than 0');
+        return;
+      }
 
-  if (!authMode) {
-    guestBalance += amount;
-    updateUI();
-    alert('Deposit applied (guest)');
-    return;
-  }
+      if (!authMode) {
+        guestBalance += amount;
+        updateUI();
+        alert('Deposit applied (guest)');
+        return;
+      }
 
-  try {
-    const data = await apiFetch('/users/deposit', {
-      method: 'POST',
-      body: { amount: amount }
-    }, true);
+      try {
+        console.log('📤 Sending deposit request...');
+        const responseData = await apiFetch('/users/deposit', {
+          method: 'POST',
+          body: { amount: amount }
+        }, true);
 
-    currentUser = data;
-    updateUI();
-    alert('Deposit successful!');
-  } catch (err) {
-    alert('Deposit failed: ' + err.message);
-  }
-}
+        console.log('📥 Raw response from server:', responseData);
 
-    async function withdraw() {
-  const amountStr = prompt('Enter withdrawal amount:');
-  if (!amountStr) return;
-  
-  const amount = Number(amountStr);
-  
-  console.log('Withdraw:', { amountStr, amount, isNaN: isNaN(amount) });
-  
-  if (isNaN(amount) || amount <= 0) {
-    alert('Enter a valid amount greater than 0');
-    return;
-  }
+        // Ensure currentUser is updated with the response
+        if (responseData && typeof responseData === 'object') {
+          currentUser = {
+            id: responseData.id,
+            username: responseData.username,
+            phone: responseData.phone,
+            balance: Number(responseData.balance),
+            freeRounds: Number(responseData.freeRounds || 0),
+            createdAt: responseData.createdAt,
+            updatedAt: responseData.updatedAt
+          };
+          console.log('✅ currentUser updated to:', currentUser);
+        } else {
+          console.error('❌ Invalid response format:', responseData);
+          alert('Invalid server response');
+          return;
+        }
 
-  if (!authMode) {
-    if (amount > guestBalance) {
-      alert('Insufficient balance');
-      return;
+        console.log('🎨 Calling updateUI...');
+        updateUI();
+        console.log('✨ UI should be updated now');
+        console.log('Balance display should show: K ' + Number(currentUser.balance).toFixed(2));
+        
+        alert('Deposit successful! New balance: K ' + Number(currentUser.balance).toFixed(2));
+      } catch (err) {
+        console.error('❌ Deposit error:', err);
+        alert('Deposit failed: ' + err.message);
+      }
     }
-    guestBalance -= amount;
-    updateUI();
-    alert('Withdrawal applied (guest)');
-    return;
-  }
 
-  try {
-    const data = await apiFetch('/users/withdraw', {
-      method: 'POST',
-      body: { amount: amount }
-    }, true);
+    // ============ WITHDRAW - FIXED ============
+    async function withdraw() {
+      const amountStr = prompt('Enter withdrawal amount:');
+      if (!amountStr) return;
+      
+      const amount = Number(amountStr);
+      
+      console.log('🔍 Withdraw attempt:', { amount, authMode, currentUser });
+      
+      if (isNaN(amount) || amount <= 0) {
+        alert('Enter a valid amount greater than 0');
+        return;
+      }
 
-    currentUser = data;
-    updateUI();
-    alert('Withdrawal successful!');
-  } catch (err) {
-    alert('Withdrawal failed: ' + err.message);
-  }
-}
+      if (!authMode) {
+        if (amount > guestBalance) {
+          alert('Insufficient balance');
+          return;
+        }
+        guestBalance -= amount;
+        updateUI();
+        alert('Withdrawal applied (guest)');
+        return;
+      }
+
+      try {
+        console.log('📤 Sending withdraw request...');
+        const responseData = await apiFetch('/users/withdraw', {
+          method: 'POST',
+          body: { amount: amount }
+        }, true);
+
+        console.log('📥 Raw response from server:', responseData);
+
+        // Ensure currentUser is updated with the response
+        if (responseData && typeof responseData === 'object') {
+          currentUser = {
+            id: responseData.id,
+            username: responseData.username,
+            phone: responseData.phone,
+            balance: Number(responseData.balance),
+            freeRounds: Number(responseData.freeRounds || 0),
+            createdAt: responseData.createdAt,
+            updatedAt: responseData.updatedAt
+          };
+          console.log('✅ currentUser updated to:', currentUser);
+        } else {
+          console.error('❌ Invalid response format:', responseData);
+          alert('Invalid server response');
+          return;
+        }
+
+        console.log('🎨 Calling updateUI...');
+        updateUI();
+        console.log('✨ UI should be updated now');
+        console.log('Balance display should show: K ' + Number(currentUser.balance).toFixed(2));
+        
+        alert('Withdrawal successful! New balance: K ' + Number(currentUser.balance).toFixed(2));
+      } catch (err) {
+        console.error('❌ Withdraw error:', err);
+        alert('Withdrawal failed: ' + err.message);
+      }
+    }
 
     updateUI();
 

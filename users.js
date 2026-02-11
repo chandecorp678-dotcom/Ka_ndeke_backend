@@ -231,35 +231,33 @@ const changeBalanceHandler = wrapAsync(async (req, res) => {
 
 router.post("/users/balance/change", requireAuth, express.json(), changeBalanceHandler);
 
-// DEPOSIT - FIXED
+// DEPOSIT - WORKS WITH YOUR FRONTEND
 router.post("/users/deposit", requireAuth, express.json(), wrapAsync(async (req, res) => {
-  const amount = req.body?.amount;
+  const rawAmount = req.body?.amount;
+  const amount = Number(rawAmount);
   
-  const numAmount = Number(amount);
-  
-  logger.info('deposit.attempt', { rawAmount: amount, numAmount, isNaN: isNaN(numAmount) });
+  logger.info('deposit.attempt', { rawAmount, amount, isNaN: isNaN(amount) });
 
-  if (isNaN(numAmount) || numAmount <= 0) {
+  if (isNaN(amount) || amount <= 0) {
     return sendError(res, 400, "Deposit amount must be greater than 0");
   }
   
-  req.body = { delta: numAmount };
+  req.body = { delta: amount };
   return changeBalanceHandler(req, res);
 }));
 
-// WITHDRAW - FIXED
+// WITHDRAW - WORKS WITH YOUR FRONTEND
 router.post("/users/withdraw", requireAuth, express.json(), wrapAsync(async (req, res) => {
-  const amount = req.body?.amount;
+  const rawAmount = req.body?.amount;
+  const amount = Number(rawAmount);
   
-  const numAmount = Number(amount);
-  
-  logger.info('withdraw.attempt', { rawAmount: amount, numAmount, isNaN: isNaN(numAmount) });
+  logger.info('withdraw.attempt', { rawAmount, amount, isNaN: isNaN(amount) });
 
-  if (isNaN(numAmount) || numAmount <= 0) {
+  if (isNaN(amount) || amount <= 0) {
     return sendError(res, 400, "Withdraw amount must be greater than 0");
   }
   
-  req.body = { delta: -Math.abs(numAmount) };
+  req.body = { delta: -Math.abs(amount) };
   return changeBalanceHandler(req, res);
 }));
 

@@ -109,13 +109,14 @@
       </div>
 
       <div class="row">
-        <button class="danger" id="cashOutBtn" disabled onclick="cashOut()">Cash Out</button>
-      </div>
+		<button class="danger" id="cashOutBtn" disabled onclick="cashOut()">Cash Out</button>
+		<button class="btn-secondary" id="viewProofBtn" disabled onclick="viewProof()">View Proof</button>
+	</div>
 
-      <div class="wallet-row">
-        <button class="btn-secondary" onclick="deposit()">+ Deposit</button>
-        <button class="btn-secondary" onclick="withdraw()">- Withdraw</button>
-      </div>
+	<div class="wallet-row">
+		<button class="btn-secondary" onclick="deposit()">+ Deposit</button>
+		<button class="btn-secondary" onclick="withdraw()">- Withdraw</button>
+	</div>
     </section>
   </main>
 
@@ -151,7 +152,39 @@
       </div>
     </div>
   </div>
+  
+  <!-- Proof Modal -->
+  <div class="modal" id="proofModal">
+    <div class="modal-content">
+      <h3>🎯 Round Proof – Verify Fairness</h3>
+      
+      <div style="background:#071a2b;padding:15px;border-radius:8px;margin:15px 0;">
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px 0;">Server Seed:</p>
+        <code style="word-break:break-all;color:var(--accent);font-size:11px;" id="proofSeed">Loading...</code>
+      </div>
 
+      <div style="background:#071a2b;padding:15px;border-radius:8px;margin:15px 0;">
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px 0;">Seed Hash:</p>
+        <code style="word-break:break-all;color:var(--accent);font-size:11px;" id="proofHash">Loading...</code>
+      </div>
+
+      <div style="background:#071a2b;padding:15px;border-radius:8px;margin:15px 0;">
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px 0;">Crash Point:</p>
+        <code style="color:var(--accent);font-size:14px;font-weight:bold;" id="proofCrash">Loading...</code>
+      </div>
+
+      <p style="font-size:12px;color:var(--muted);text-align:center;">
+        ✅ This crash was determined by the seed above.<br>
+        You can verify using SHA256(seed) = hash shown.
+      </p>
+
+      <div class="modal-actions">
+        <button class="primary" onclick="copyProof()">Copy Proof</button>
+        <button class="btn-secondary" onclick="hideModals()">Close</button>
+      </div>
+    </div>
+  </div>
+  
   <script>
     const API_BASE = 'https://ka-ndeke-backend-5dgy.onrender.com/api';
     const TOKEN_KEY = 'flyzed_token';
@@ -165,6 +198,7 @@
     let crashed = false;
     let roundActive = false;
     let statusPoller = null;
+	let currentRoundId = null;  // Track current round ID for proof viewing
 
     const loginModal = document.getElementById('loginModal');
     const registerModal = document.getElementById('registerModal');
@@ -253,6 +287,7 @@
     function hideModals() {
       loginModal.classList.remove('show');
       registerModal.classList.remove('show');
+	  document.getElementById('proofModal').classList.remove('show');
     }
 
     function showMessage(modalId, message, isError) {
@@ -290,13 +325,14 @@
         }
 
         if (status.status === 'crashed' && roundActive) {
-          roundActive = false;
-          crashed = true;
-          running = false;
+		  roundActive = false;
+		  crashed = true;
+		  running = false;
           document.getElementById('status').textContent = `💥 Crashed at ${liveMultiplier.toFixed(2)}x`;
           document.getElementById('cashOutBtn').disabled = true;
           document.getElementById('playBtn').disabled = false;
-        }
+          document.getElementById('viewProofBtn').disabled = false;  // Enable proof viewing
+		}
       } catch (err) {
         // Silently fail
       }
@@ -402,6 +438,8 @@
         document.getElementById('playBtn').disabled = true;
         document.getElementById('status').textContent = '✈️ Bet placed!';
         document.getElementById('multiplier').textContent = '1.00x';
+		currentRoundId = data.roundId;  // Save round ID for later proof viewing
+		document.getElementById('viewProofBtn').disabled = true;  // Disable until crash
 
       } catch (err) {
         alert('Failed to start round: ' + err.message);
@@ -574,6 +612,50 @@
         }
       }
     })();
+	// ============ STAGE 7: PROVABLY FAIR ============
+
+async function viewProof() {
+  if (!currentRoundId) {
+    alert('No round to prove');
+    return;
+  }
+
+  try {
+    console.log('Fetching proof for round:', currentRoundId);
+    
+    const proof = await apiFetch(`/game/reveal/${currentRoundId}`);
+    
+    console.log('Proof received:', proof);
+    
+    // Display proof in modal
+    document.getElementById('proofSeed').textContent = proof.serverSeed || 'Not available';
+    document.getElementById('proofHash').textContent = proof.serverSeedHash || 'Not available';
+    document.getElementById('proofCrash').textContent = (proof.crashPoint || 'N/A') + 'x';
+    
+    // Show modal
+    document.getElementById('proofModal').classList.add('show');
+    
+  } catch (err) {
+    console.error('Error fetching proof:', err);
+    alert('Error loading proof: ' + err.message);
+  }
+}
+
+function copyProof() {
+  const seed = document.getElementById('proofSeed').textContent;
+  const hash = document.getElementById('proofHash').textContent;
+  const crash = document.getElementById('proofCrash').textContent;
+  
+  const proofText = `Server Seed: ${seed}\nSeed Hash: ${hash}\nCrash Point: ${crash}`;
+  
+  navigator.clipboard.writeText(proofText).then(() => {
+    alert('✅ Proof copied to clipboard');
+  }).catch(() => {
+    alert('Could not copy to clipboard');
+  });
+}
+
+// ============ END STAGE 7 ============
   </script>
 </body>
 </html>

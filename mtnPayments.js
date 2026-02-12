@@ -127,8 +127,9 @@ async function requestMoney(phone, amount, externalId, description = 'Ka Ndeke D
       payeeNote: description
     };
 
+    const token = await getAccessToken('collections');  // ✅ Await it
+    
     const headers = {
-    const token = await getAccessToken('collections');  // ✅ Await it!  
       'X-Reference-Id': transactionId,
       'X-Callback-Url': process.env.MTN_CALLBACK_URL || 'https://ka-ndeke-backend-5dgy.onrender.com/api/payments/callback',
       'Authorization': `Bearer ${getAccessToken('collections')}`,

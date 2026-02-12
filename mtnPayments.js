@@ -328,7 +328,6 @@ module.exports = {
   requestMoney,
   sendMoney,
   getTransactionStatus,
-  normalizePhoneNumber,
   verifyWebhookSignature,
   generateUUID,
   USE_SANDBOX,

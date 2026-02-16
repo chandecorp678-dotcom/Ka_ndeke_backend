@@ -189,6 +189,65 @@ router.post("/admin/migration/add-zils-uuid", express.json(), wrapAsync(async (r
   }
 }));
 
+// ============ REGENERATE ZILS UUIDs FOR ALL USERS ============
+router.post("/admin/migration/regenerate-zils-uuid", express.json(), wrapAsync(async (req, res) => {
+  const db = req.app.locals.db;
+  const adminToken = req.get("x-admin-token") || "";
+  const expectedToken = process.env.ADMIN_TOKEN || "";
+
+  if (!adminToken || adminToken !== expectedToken) {
+    logger.warn('regenerate_zils_uuid.unauthorized');
+    return sendError(res, 403, "Unauthorized");
+  }
+
+  try {
+    console.log('🔄 Regenerating zils_uuid for all users...');
+    const { v4: uuidv4 } = require("uuid");
+
+    // Get all users
+    const allUsers = await db.query(`SELECT id, zils_uuid FROM users`);
+    console.log(`Found ${allUsers.rowCount} users`);
+
+    let updated = 0;
+    let created = 0;
+
+    for (const user of allUsers.rows) {
+      const newUuid = uuidv4();
+      
+      if (user.zils_uuid) {
+        // Update existing
+        await db.query(
+          `UPDATE users SET zils_uuid = $1 WHERE id = $2`,
+          [newUuid, user.id]
+        );
+        updated++;
+      } else {
+        // Create new (NULL)
+        await db.query(
+          `UPDATE users SET zils_uuid = $1 WHERE id = $2`,
+          [newUuid, user.id]
+        );
+        created++;
+      }
+    }
+
+    console.log(`✅ Regenerated ${updated} existing + ${created} new UUIDs`);
+    logger.info('migration.regenerate_zils_uuid.success', { updated, created });
+
+    return res.json({
+      ok: true,
+      message: "✅ UUIDs regenerated successfully",
+      usersProcessed: allUsers.rowCount,
+      uuidsUpdated: updated,
+      uuidsCreated: created
+    });
+  } catch (err) {
+    console.error('❌ Regeneration failed:', err.message);
+    logger.error('migration.regenerate_zils_uuid.error', { message: err.message });
+    return sendError(res, 500, "Regeneration failed: " + err.message);
+  }
+}));
+
 // LOGIN
 router.post("/auth/login",
   loginLimiter.middleware({

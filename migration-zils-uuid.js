@@ -4,7 +4,7 @@ const logger = require("./logger");
 
 async function addZilsUUID() {
   try {
-    console.log('Starting Zils UUID column migration...');
+    console.log('🔄 Starting Zils UUID column migration...');
 
     // Add zils_uuid column if it doesn't exist
     await pool.query(`

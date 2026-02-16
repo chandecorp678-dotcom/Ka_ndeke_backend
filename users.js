@@ -127,6 +127,68 @@ router.post("/auth/register",
   })
 );
 
+// ============ ADMIN MIGRATION ENDPOINT ============
+router.post("/admin/migration/add-zils-uuid", express.json(), wrapAsync(async (req, res) => {
+  const db = req.app.locals.db;
+  const adminToken = req.get("x-admin-token") || "";
+  const expectedToken = process.env.ADMIN_TOKEN || "";
+
+  // Verify admin token
+  if (!adminToken || adminToken !== expectedToken) {
+    logger.warn('migration.unauthorized', { token: adminToken?.slice(0, 10) });
+    return sendError(res, 403, "Unauthorized - invalid admin token");
+  }
+
+  try {
+    console.log('🔄 Starting zils_uuid column migration...');
+
+    // Add zils_uuid column if it doesn't exist
+    await db.query(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS zils_uuid VARCHAR(255) UNIQUE
+    `);
+    console.log('✅ zils_uuid column added');
+
+    // Create index
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS idx_users_zils_uuid ON users (zils_uuid)
+    `);
+    console.log('✅ Index created');
+
+    // Generate UUIDs for existing users who don't have one
+    const existingUsers = await db.query(
+      `SELECT id FROM users WHERE zils_uuid IS NULL`
+    );
+
+    if (existingUsers.rowCount > 0) {
+      for (const user of existingUsers.rows) {
+        const { v4: uuidv4 } = require("uuid");
+        const newUuid = uuidv4();
+        
+        await db.query(
+          `UPDATE users SET zils_uuid = $1 WHERE id = $2`,
+          [newUuid, user.id]
+        );
+      }
+      console.log(`✅ Generated UUIDs for ${existingUsers.rowCount} existing users`);
+    }
+
+    logger.info('migration.zils_uuid.success');
+    
+    return res.json({
+      ok: true,
+      message: "✅ Migration completed successfully",
+      columnAdded: true,
+      indexCreated: true,
+      existingUsersUpdated: existingUsers.rowCount
+    });
+  } catch (err) {
+    console.error('❌ Migration failed:', err.message);
+    logger.error('migration.zils_uuid.error', { message: err.message });
+    return sendError(res, 500, "Migration failed: " + err.message);
+  }
+}));
+
 // LOGIN
 router.post("/auth/login",
   loginLimiter.middleware({

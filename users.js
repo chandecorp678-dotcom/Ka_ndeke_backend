@@ -103,8 +103,8 @@ router.post("/auth/register",
 
       // ✅ ADD: Insert with zils_uuid column
       await db.query(
-        `INSERT INTO users (id, username, phone, password_hash, balance, freerounds, createdat, updatedat)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        `INSERT INTO users (id, username, phone, password_hash, balance, freerounds, zils_uuid, createdat, updatedat)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [id, trimmedUsername, trimmedPhone, password_hash, 0, 0, zilsUuid, now, now]
       );
 

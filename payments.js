@@ -41,27 +41,48 @@ router.use(requireAuth);
 router.post('/deposit', express.json(), wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   const userId = req.user.id;
-  const userPhone = req.user.phone;
-  const userZilsUuid = req.user.zilsUuid;
   
   let { amount } = req.body || {};
-
   amount = Number(amount);
 
-  // Validate
+  // Validate amount first
   if (isNaN(amount) || amount < DEPOSIT_MIN || amount > DEPOSIT_MAX) {
     return sendError(res, 400, `Deposit amount must be between K${DEPOSIT_MIN} and K${DEPOSIT_MAX}`);
   }
 
-  if (!userPhone) {
-    return sendError(res, 400, 'Phone number not found on account');
-  }
-
-  if (!userZilsUuid) {
-    return sendError(res, 400, 'Zils UUID not found on account');
-  }
-
   try {
+    // ✅ FIX: Fetch fresh user data from DB to ensure zils_uuid is loaded
+    const userRes = await db.query(
+      `SELECT id, phone, zils_uuid FROM users WHERE id = $1`,
+      [userId]
+    );
+
+    if (!userRes.rowCount) {
+      return sendError(res, 404, 'User not found');
+    }
+
+    const userPhone = userRes.rows[0].phone;
+    const userZilsUuid = userRes.rows[0].zils_uuid;
+
+    // ✅ DEBUG: Log what we retrieved
+    console.log('📤 /deposit - Fresh user from DB:', {
+      userId,
+      userPhone,
+      userZilsUuid,
+      row: userRes.rows[0]
+    });
+
+    // Validate phone
+    if (!userPhone) {
+      return sendError(res, 400, 'Phone number not found on account');
+    }
+
+    // Validate Zils UUID
+    if (!userZilsUuid) {
+      logger.error('payments.deposit.no_zils_uuid', { userId, userPhone });
+      return sendError(res, 400, 'Zils UUID not found on account. Please logout and login again.');
+    }
+
     const result = await runTransaction(db, async (client) => {
       // Check if user already has pending deposit
       const existingDeposit = await client.query(
@@ -94,8 +115,8 @@ router.post('/deposit', express.json(), wrapAsync(async (req, res) => {
           'deposit', 
           amount, 
           userPhone, 
-          zilsResponse.transactionId,  // Use as transaction ID
-          userZilsUuid,  // Use as external ID
+          zilsResponse.transactionId,
+          userZilsUuid,
           'pending',
           'PENDING',
           now, 
@@ -142,11 +163,8 @@ router.post('/deposit', express.json(), wrapAsync(async (req, res) => {
 router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   const userId = req.user.id;
-  const userPhone = req.user.phone;
-  const userZilsUuid = req.user.zilsUuid;
   
   let { amount } = req.body || {};
-
   amount = Number(amount);
 
   // Validate amount
@@ -154,36 +172,47 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
     return sendError(res, 400, `Withdrawal amount must be between K${WITHDRAWAL_MIN} and K${WITHDRAWAL_MAX}`);
   }
 
-  // Validate phone
-  if (!userPhone) {
-    return sendError(res, 400, 'Phone number not found on account');
-  }
-
-  if (!userZilsUuid) {
-    return sendError(res, 400, 'Zils UUID not found on account');
-  }
-
   try {
+    // ✅ FIX: Fetch fresh user data from DB to ensure zils_uuid is loaded
+    const userRes = await db.query(
+      `SELECT id, phone, zils_uuid, balance FROM users WHERE id = $1 FOR UPDATE`,
+      [userId]
+    );
+
+    if (!userRes.rowCount) {
+      return sendError(res, 404, 'User not found');
+    }
+
+    const userPhone = userRes.rows[0].phone;
+    const userZilsUuid = userRes.rows[0].zils_uuid;
+    const currentBalance = Number(userRes.rows[0].balance || 0);
+
+    // ✅ DEBUG: Log what we retrieved
+    console.log('📤 /withdraw - Fresh user from DB:', {
+      userId,
+      userPhone,
+      userZilsUuid,
+      balance: currentBalance,
+      row: userRes.rows[0]
+    });
+
+    // Validate phone
+    if (!userPhone) {
+      return sendError(res, 400, 'Phone number not found on account');
+    }
+
+    // Validate Zils UUID
+    if (!userZilsUuid) {
+      logger.error('payments.withdraw.no_zils_uuid', { userId, userPhone });
+      return sendError(res, 400, 'Zils UUID not found on account. Please logout and login again.');
+    }
+
+    // Check balance
+    if (currentBalance < amount) {
+      return sendError(res, 402, `Insufficient balance. You have K ${currentBalance.toFixed(2)}, but requested K ${amount.toFixed(2)}`);
+    }
+
     const result = await runTransaction(db, async (client) => {
-      // Check user balance
-      const userRes = await client.query(
-        `SELECT balance FROM users WHERE id = $1 FOR UPDATE`,
-        [userId]
-      );
-
-      if (!userRes.rowCount) {
-        const err = new Error('User not found');
-        err.status = 404;
-        throw err;
-      }
-
-      const balance = Number(userRes.rows[0].balance || 0);
-      if (balance < amount) {
-        const err = new Error('Insufficient balance');
-        err.status = 402;
-        throw err;
-      }
-
       // Check pending withdrawals
       const pendingWithdraw = await client.query(
         `SELECT id FROM payments 
@@ -242,7 +271,7 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
         paymentId, 
         transactionId: zilsResponse.transactionId, 
         status: 'processing', 
-        newBalance: balance - amount,
+        newBalance: currentBalance - amount,
         amount
       };
     });
@@ -257,7 +286,7 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
       newBalance: result.newBalance
     });
   } catch (err) {
-    if (err.status === 402) return sendError(res, err.status, 'Insufficient balance');
+    if (err.status === 402) return sendError(res, err.status, err.message);
     if (err.status === 409) return sendError(res, err.status, err.message);
     if (err.status === 404) return sendError(res, err.status, err.message);
     logger.error('payments.withdraw.error', { userId, amount, message: err.message });

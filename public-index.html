@@ -1163,118 +1163,95 @@
   }
 }
 
-    // ============ DEPOSIT ============
+        // ============ DEPOSIT ============
     async function deposit() {
-      const amountStr = prompt('Enter deposit amount:');
+      const amountStr = prompt('Enter deposit amount (K):\n\n(Min: K0.50 | Max: K500,000)');
       if (!amountStr) return;
       
       const amount = Number(amountStr);
       
-      console.log('🔍 Deposit:', { amountStr, amount, authMode });
-      
       if (isNaN(amount) || amount <= 0) {
-        alert('Enter a valid amount greater than 0');
+        alert('❌ Please enter a valid amount');
         return;
       }
 
       if (!authMode) {
         guestBalance += amount;
         updateUI();
-        alert('Deposit applied (guest)');
+        alert('✅ Deposit applied (guest mode)\n\nNew balance: K ' + guestBalance.toFixed(2));
         return;
       }
 
       try {
-        console.log('📤 Sending deposit request with amount:', amount);
-        const responseData = await apiFetch('/users/deposit', {
+        console.log('📤 Sending deposit request:', { amount });
+        
+        const responseData = await apiFetch('/payments/deposit', {
           method: 'POST',
           body: { amount: amount }
         }, true);
 
-        console.log('📥 Response:', responseData);
+        console.log('📥 Deposit response:', responseData);
 
-        if (!responseData) {
-          alert('No data returned from server');
-          return;
+        if (responseData && responseData.ok) {
+          alert(`✅ Deposit initiated!\n\nTransaction ID:\n${responseData.transactionId}\n\nPlease confirm on your phone.`);
+          
+          console.log('Deposit initiated successfully');
+        } else {
+          alert('❌ ' + (responseData?.message || 'Deposit failed'));
         }
-
-        currentUser = {
-          id: responseData.id,
-          username: responseData.username,
-          phone: responseData.phone,
-          balance: Number(responseData.balance) || 0,
-          freeRounds: Number(responseData.freeRounds || responseData.freerounds) || 0,
-          createdAt: responseData.createdAt,
-          updatedAt: responseData.updatedAt
-        };
-
-        console.log('✅ currentUser updated:', currentUser);
-        updateUI();
-        alert('Deposit successful! New balance: K ' + currentUser.balance.toFixed(2));
       } catch (err) {
         console.error('❌ Deposit error:', err);
-        alert('Deposit failed: ' + err.message);
+        alert('❌ ' + err.message);
       }
     }
 
     // ============ WITHDRAW ============
     async function withdraw() {
-      const amountStr = prompt('Enter withdrawal amount:');
+      const amountStr = prompt('Enter withdrawal amount (K):\n\n(Min: K5 | Max: K5,000)');
       if (!amountStr) return;
       
       const amount = Number(amountStr);
       
-      console.log('🔍 Withdraw:', { amountStr, amount, authMode });
-      
       if (isNaN(amount) || amount <= 0) {
-        alert('Enter a valid amount greater than 0');
+        alert('❌ Please enter a valid amount');
         return;
       }
 
       if (!authMode) {
         if (amount > guestBalance) {
-          alert('Insufficient balance');
+          alert('❌ Insufficient balance\n\nYour balance: K ' + guestBalance.toFixed(2));
           return;
         }
         guestBalance -= amount;
         updateUI();
-        alert('Withdrawal applied (guest)');
+        alert('✅ Withdrawal applied (guest mode)\n\nNew balance: K ' + guestBalance.toFixed(2));
         return;
       }
 
       try {
-        console.log('📤 Sending withdraw request with amount:', amount);
-        const responseData = await apiFetch('/users/withdraw', {
+        console.log('📤 Sending withdraw request:', { amount });
+        
+        const responseData = await apiFetch('/payments/withdraw', {
           method: 'POST',
           body: { amount: amount }
         }, true);
 
-        console.log('📥 Response:', responseData);
+        console.log('📥 Withdraw response:', responseData);
 
-        if (!responseData) {
-          alert('No data returned from server');
-          return;
+        if (responseData && responseData.ok) {
+          currentUser.balance = responseData.newBalance;
+          updateUI();
+          
+          alert(`✅ Withdrawal initiated!\n\nTransaction ID:\n${responseData.transactionId}\n\nMoney arriving shortly...\n\nNew balance: K ${responseData.newBalance.toFixed(2)}`);
+        } else {
+          alert('❌ ' + (responseData?.message || 'Withdrawal failed'));
         }
-
-        currentUser = {
-          id: responseData.id,
-          username: responseData.username,
-          phone: responseData.phone,
-          balance: Number(responseData.balance) || 0,
-          freeRounds: Number(responseData.freeRounds || responseData.freerounds) || 0,
-          createdAt: responseData.createdAt,
-          updatedAt: responseData.updatedAt
-        };
-
-        console.log('✅ currentUser updated:', currentUser);
-        updateUI();
-        alert('Withdrawal successful! New balance: K ' + currentUser.balance.toFixed(2));
       } catch (err) {
         console.error('❌ Withdraw error:', err);
-        alert('Withdrawal failed: ' + err.message);
+        alert('❌ ' + err.message);
       }
     }
-
+	  
     updateUI();
 
     [loginModal, registerModal].forEach(modal => {

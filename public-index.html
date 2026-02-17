@@ -1163,94 +1163,129 @@
   }
 }
 
-        // ============ DEPOSIT ============
-    async function deposit() {
-      const amountStr = prompt('Enter deposit amount (K):\n\n(Min: K0.50 | Max: K500,000)');
-      if (!amountStr) return;
+        <!-- Keep your existing HTML, just update the JavaScript functions -->
+
+<!-- ============ DEPOSIT ============ -->
+<script>
+async function deposit() {
+  // ✅ GENERATE NEW UUID FOR THIS TRANSACTION
+  const transactionUUID = generateUUID();
+  
+  const amountStr = prompt('Enter deposit amount (K):\n\n(Min: K0.50 | Max: K500,000)');
+  if (!amountStr) return;
+  
+  const amount = Number(amountStr);
+  
+  if (isNaN(amount) || amount <= 0) {
+    alert('❌ Please enter a valid amount');
+    return;
+  }
+
+  if (!authMode) {
+    guestBalance += amount;
+    updateUI();
+    alert('✅ Deposit applied (guest mode)\n\nNew balance: K ' + guestBalance.toFixed(2));
+    return;
+  }
+
+  try {
+    console.log('📤 Sending deposit request:', { 
+      amount, 
+      transactionUUID,  // ← NEW: Log the UUID
+      timestamp: new Date().toISOString()
+    });
+    
+    // ✅ SEND UUID TO BACKEND
+    const responseData = await apiFetch('/payments/deposit', {
+      method: 'POST',
+      body: { 
+        amount: amount,
+        transactionUUID: transactionUUID  // ← NEW: Include UUID
+      }
+    }, true);
+
+    console.log('📥 Deposit response:', responseData);
+
+    if (responseData && responseData.ok) {
+      alert(`✅ Deposit initiated!\n\nTransaction ID:\n${responseData.transactionId}\n\nPlease confirm on your phone.`);
       
-      const amount = Number(amountStr);
-      
-      if (isNaN(amount) || amount <= 0) {
-        alert('❌ Please enter a valid amount');
-        return;
-      }
-
-      if (!authMode) {
-        guestBalance += amount;
-        updateUI();
-        alert('✅ Deposit applied (guest mode)\n\nNew balance: K ' + guestBalance.toFixed(2));
-        return;
-      }
-
-      try {
-        console.log('📤 Sending deposit request:', { amount });
-        
-        const responseData = await apiFetch('/payments/deposit', {
-          method: 'POST',
-          body: { amount: amount }
-        }, true);
-
-        console.log('📥 Deposit response:', responseData);
-
-        if (responseData && responseData.ok) {
-          alert(`✅ Deposit initiated!\n\nTransaction ID:\n${responseData.transactionId}\n\nPlease confirm on your phone.`);
-          
-          console.log('Deposit initiated successfully');
-        } else {
-          alert('❌ ' + (responseData?.message || 'Deposit failed'));
-        }
-      } catch (err) {
-        console.error('❌ Deposit error:', err);
-        alert('❌ ' + err.message);
-      }
+      console.log('Deposit initiated successfully');
+    } else {
+      alert('❌ ' + (responseData?.message || 'Deposit failed'));
     }
+  } catch (err) {
+    console.error('❌ Deposit error:', err);
+    alert('❌ ' + err.message);
+  }
+}
 
-    // ============ WITHDRAW ============
-    async function withdraw() {
-      const amountStr = prompt('Enter withdrawal amount (K):\n\n(Min: K5 | Max: K5,000)');
-      if (!amountStr) return;
-      
-      const amount = Number(amountStr);
-      
-      if (isNaN(amount) || amount <= 0) {
-        alert('❌ Please enter a valid amount');
-        return;
-      }
+// ============ WITHDRAW ============
+async function withdraw() {
+  // ✅ GENERATE NEW UUID FOR THIS TRANSACTION
+  const transactionUUID = generateUUID();
+  
+  const amountStr = prompt('Enter withdrawal amount (K):\n\n(Min: K5 | Max: K5,000)');
+  if (!amountStr) return;
+  
+  const amount = Number(amountStr);
+  
+  if (isNaN(amount) || amount <= 0) {
+    alert('❌ Please enter a valid amount');
+    return;
+  }
 
-      if (!authMode) {
-        if (amount > guestBalance) {
-          alert('❌ Insufficient balance\n\nYour balance: K ' + guestBalance.toFixed(2));
-          return;
-        }
-        guestBalance -= amount;
-        updateUI();
-        alert('✅ Withdrawal applied (guest mode)\n\nNew balance: K ' + guestBalance.toFixed(2));
-        return;
-      }
-
-      try {
-        console.log('📤 Sending withdraw request:', { amount });
-        
-        const responseData = await apiFetch('/payments/withdraw', {
-          method: 'POST',
-          body: { amount: amount }
-        }, true);
-
-        console.log('📥 Withdraw response:', responseData);
-
-        if (responseData && responseData.ok) {
-          currentUser.balance = responseData.newBalance;
-          updateUI();
-          
-          alert(`✅ Withdrawal initiated!\n\nTransaction ID:\n${responseData.transactionId}\n\nMoney arriving shortly...\n\nNew balance: K ${responseData.newBalance.toFixed(2)}`);
-        } else {
-          alert('❌ ' + (responseData?.message || 'Withdrawal failed'));
-        }
-      } catch (err) {
-        console.error('❌ Withdraw error:', err);
-        alert('❌ ' + err.message);
-      }
+  if (!authMode) {
+    if (amount > guestBalance) {
+      alert('❌ Insufficient balance\n\nYour balance: K ' + guestBalance.toFixed(2));
+      return;
     }
+    guestBalance -= amount;
+    updateUI();
+    alert('✅ Withdrawal applied (guest mode)\n\nNew balance: K ' + guestBalance.toFixed(2));
+    return;
+  }
+
+  try {
+    console.log('📤 Sending withdraw request:', { 
+      amount,
+      transactionUUID,  // ← NEW: Log the UUID
+      timestamp: new Date().toISOString()
+    });
+    
+    // ✅ SEND UUID TO BACKEND
+    const responseData = await apiFetch('/payments/withdraw', {
+      method: 'POST',
+      body: { 
+        amount: amount,
+        transactionUUID: transactionUUID  // ← NEW: Include UUID
+      }
+    }, true);
+
+    console.log('📥 Withdraw response:', responseData);
+
+    if (responseData && responseData.ok) {
+      currentUser.balance = responseData.newBalance;
+      updateUI();
+      
+      alert(`✅ Withdrawal initiated!\n\nTransaction ID:\n${responseData.transactionId}\n\nMoney arriving shortly...\n\nNew balance: K ${responseData.newBalance.toFixed(2)}`);
+    } else {
+      alert('❌ ' + (responseData?.message || 'Withdrawal failed'));
+    }
+  } catch (err) {
+    console.error('❌ Withdraw error:', err);
+    alert('❌ ' + err.message);
+  }
+}
+
+// ✅ NEW: UUID GENERATOR FUNCTION
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+</script>
 	  
     updateUI();
 

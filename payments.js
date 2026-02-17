@@ -36,14 +36,19 @@ router.use(requireAuth);
 /**
  * POST /api/payments/deposit
  * User initiates a deposit via Zils Logistics
- * Body: { amount }
+ * Body: { amount, transactionUUID }
  */
 router.post('/deposit', express.json(), wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   const userId = req.user.id;
   
-  let { amount } = req.body || {};
+  let { amount, transactionUUID } = req.body || {};
   amount = Number(amount);
+
+  // ✅ NEW: Validate that UUID was provided
+  if (!transactionUUID) {
+    return sendError(res, 400, 'Transaction UUID required');
+  }
 
   // Validate amount first
   if (isNaN(amount) || amount < DEPOSIT_MIN || amount > DEPOSIT_MAX) {
@@ -69,6 +74,7 @@ router.post('/deposit', express.json(), wrapAsync(async (req, res) => {
       userId,
       userPhone,
       userZilsUuid,
+      transactionUUID,  // ← NEW: Log the transaction UUID
       row: userRes.rows[0]
     });
 
@@ -99,8 +105,8 @@ router.post('/deposit', express.json(), wrapAsync(async (req, res) => {
         throw err;
       }
 
-      // Call Zils API to request deposit
-      const zilsResponse = await zils.deposit(userPhone, amount, userZilsUuid);
+      // ✅ NEW: Pass transactionUUID to Zils (instead of generating new one)
+      const zilsResponse = await zils.deposit(userPhone, amount, transactionUUID);
 
       // Store payment record in DB
       const paymentId = require('crypto').randomUUID();
@@ -116,7 +122,7 @@ router.post('/deposit', express.json(), wrapAsync(async (req, res) => {
           amount, 
           userPhone, 
           zilsResponse.transactionId,
-          userZilsUuid,
+          transactionUUID,  // ← NEW: Store the transaction UUID as external_id
           'pending',
           'PENDING',
           now, 
@@ -129,14 +135,16 @@ router.post('/deposit', express.json(), wrapAsync(async (req, res) => {
         userId, 
         amount, 
         phone: userPhone, 
-        zilsTransactionId: zilsResponse.transactionId 
+        zilsTransactionId: zilsResponse.transactionId,
+        transactionUUID  // ← NEW: Log the UUID
       });
 
       return { 
         paymentId, 
         transactionId: zilsResponse.transactionId, 
         status: 'pending',
-        amount
+        amount,
+        transactionUUID  // ← NEW: Return to frontend
       };
     });
 
@@ -145,12 +153,13 @@ router.post('/deposit', express.json(), wrapAsync(async (req, res) => {
       message: 'Deposit request sent to Zils Logistics. Please check your phone for confirmation.',
       paymentId: result.paymentId,
       transactionId: result.transactionId,
+      transactionUUID: result.transactionUUID,  // ← NEW: Return UUID
       amount,
       status: result.status
     });
   } catch (err) {
     if (err.status === 409) return sendError(res, err.status, err.message);
-    logger.error('payments.deposit.error', { userId, amount, message: err.message });
+    logger.error('payments.deposit.error', { userId, amount, transactionUUID, message: err.message });
     return sendError(res, 500, 'Failed to initiate deposit', err.message);
   }
 }));
@@ -158,14 +167,19 @@ router.post('/deposit', express.json(), wrapAsync(async (req, res) => {
 /**
  * POST /api/payments/withdraw
  * User initiates a withdrawal via Zils Logistics
- * Body: { amount }
+ * Body: { amount, transactionUUID }
  */
 router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
   const userId = req.user.id;
   
-  let { amount } = req.body || {};
+  let { amount, transactionUUID } = req.body || {};
   amount = Number(amount);
+
+  // ✅ NEW: Validate that UUID was provided
+  if (!transactionUUID) {
+    return sendError(res, 400, 'Transaction UUID required');
+  }
 
   // Validate amount
   if (isNaN(amount) || amount < WITHDRAWAL_MIN || amount > WITHDRAWAL_MAX) {
@@ -192,6 +206,7 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
       userId,
       userPhone,
       userZilsUuid,
+      transactionUUID,  // ← NEW: Log the transaction UUID
       balance: currentBalance,
       row: userRes.rows[0]
     });
@@ -234,8 +249,8 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
         [amount, userId]
       );
 
-      // Call Zils API to send money
-      const zilsResponse = await zils.withdrawal(userPhone, amount, userZilsUuid);
+      // ✅ NEW: Pass transactionUUID to Zils (instead of generating new one)
+      const zilsResponse = await zils.withdrawal(userPhone, amount, transactionUUID);
 
       // Store payment record
       const paymentId = require('crypto').randomUUID();
@@ -251,7 +266,7 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
           amount, 
           userPhone, 
           zilsResponse.transactionId,
-          userZilsUuid,
+          transactionUUID,  // ← NEW: Store the transaction UUID as external_id
           'processing',
           'PROCESSING',
           now, 
@@ -264,7 +279,8 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
         userId, 
         amount, 
         phone: userPhone, 
-        zilsTransactionId: zilsResponse.transactionId 
+        zilsTransactionId: zilsResponse.transactionId,
+        transactionUUID  // ← NEW: Log the UUID
       });
 
       return { 
@@ -272,7 +288,8 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
         transactionId: zilsResponse.transactionId, 
         status: 'processing', 
         newBalance: currentBalance - amount,
-        amount
+        amount,
+        transactionUUID  // ← NEW: Return to frontend
       };
     });
 
@@ -281,6 +298,7 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
       message: 'Withdrawal initiated. Money will arrive shortly.',
       paymentId: result.paymentId,
       transactionId: result.transactionId,
+      transactionUUID: result.transactionUUID,  // ← NEW: Return UUID
       amount,
       status: result.status,
       newBalance: result.newBalance
@@ -289,7 +307,7 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
     if (err.status === 402) return sendError(res, err.status, err.message);
     if (err.status === 409) return sendError(res, err.status, err.message);
     if (err.status === 404) return sendError(res, err.status, err.message);
-    logger.error('payments.withdraw.error', { userId, amount, message: err.message });
+    logger.error('payments.withdraw.error', { userId, amount, transactionUUID, message: err.message });
     return sendError(res, 500, 'Failed to initiate withdrawal', err.message);
   }
 }));

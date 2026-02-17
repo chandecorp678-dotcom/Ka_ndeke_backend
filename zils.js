@@ -7,10 +7,12 @@ const crypto = require('crypto');
 /**
  * ZILS LOGISTICS PAYMENT GATEWAY
  * Handles deposits (collections) and withdrawals (disbursements)
+ * 
+ * FIXED: Use complete endpoint URLs from environment
  */
 
-const ZILS_API_BASE_URL = process.env.ZILS_API_BASE_URL || 'https://collections.zilslogistics.com/api/v1';
-const ZILS_DISBURSEMENTS_URL = process.env.ZILS_DISBURSEMENTS_URL || 'https://disbursements.zilslogistics.com/api/v1';
+const ZILS_COLLECTIONS_URL = process.env.ZILS_COLLECTIONS_URL || 'https://collections.zilslogistics.com/api/v1/wallets/external';
+const ZILS_DISBURSEMENTS_URL = process.env.ZILS_DISBURSEMENTS_URL || 'https://disbursements.zilslogistics.com/api/v1/wallets/external';
 const ZILS_API_TOKEN = process.env.ZILS_API_TOKEN;
 const ZILS_MERCHANT_PHONE = process.env.ZILS_MERCHANT_PHONE || '0761948460';
 
@@ -19,57 +21,71 @@ if (!ZILS_API_TOKEN) {
 }
 
 logger.info('zils.initialized', { 
-  baseUrl: ZILS_API_BASE_URL, 
+  collectionsUrl: ZILS_COLLECTIONS_URL,
   disbursementsUrl: ZILS_DISBURSEMENTS_URL,
   merchantPhone: ZILS_MERCHANT_PHONE
 });
 
 /**
  * Make HTTPS request to Zils API
+ * @param {string} method - HTTP method (GET, POST)
+ * @param {string} fullUrl - Complete URL (no path appending)
+ * @param {object} headers - Additional headers
+ * @param {object} body - Request body
  */
-function httpsRequest(method, path, baseUrl, headers = {}, body = null) {
+function httpsRequest(method, fullUrl, headers = {}, body = null) {
   return new Promise((resolve, reject) => {
-    const url = new URL(baseUrl + path);
-    const options = {
-      hostname: url.hostname,
-      port: 443,
-      path: url.pathname + url.search,
-      method: method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${ZILS_API_TOKEN}`,
-        ...headers
-      },
-      timeout: 30000
-    };
+    try {
+      const url = new URL(fullUrl);
+      const options = {
+        hostname: url.hostname,
+        port: 443,
+        path: url.pathname + url.search,
+        method: method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${ZILS_API_TOKEN}`,
+          ...headers
+        },
+        timeout: 30000
+      };
 
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const json = data ? JSON.parse(data) : {};
-          resolve({ status: res.statusCode, headers: res.headers, body: json });
-        } catch (e) {
-          resolve({ status: res.statusCode, headers: res.headers, body: data });
-        }
+      logger.info('zils.httpsRequest.start', { method, url: fullUrl });
+
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', chunk => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const json = data ? JSON.parse(data) : {};
+            logger.info('zils.httpsRequest.success', { method, statusCode: res.statusCode, url: fullUrl });
+            resolve({ status: res.statusCode, headers: res.headers, body: json });
+          } catch (e) {
+            logger.warn('zils.httpsRequest.parse_error', { message: e.message, data });
+            resolve({ status: res.statusCode, headers: res.headers, body: data });
+          }
+        });
       });
-    });
 
-    req.on('error', (err) => {
-      logger.error('zils.httpsRequest.error', { method, path, message: err.message });
+      req.on('error', (err) => {
+        logger.error('zils.httpsRequest.error', { method, url: fullUrl, message: err.message });
+        reject(err);
+      });
+
+      req.on('timeout', () => {
+        req.abort();
+        logger.error('zils.httpsRequest.timeout', { method, url: fullUrl });
+        reject(new Error('Zils API request timeout'));
+      });
+
+      if (body) {
+        req.write(JSON.stringify(body));
+      }
+      req.end();
+    } catch (err) {
+      logger.error('zils.httpsRequest.exception', { method, fullUrl, message: err.message });
       reject(err);
-    });
-
-    req.on('timeout', () => {
-      req.abort();
-      reject(new Error('Zils API request timeout'));
-    });
-
-    if (body) {
-      req.write(JSON.stringify(body));
     }
-    req.end();
   });
 }
 
@@ -112,10 +128,10 @@ async function deposit(customerPhone, amount, customerUUID) {
       transactionId
     });
 
+    // ✅ FIXED: Use complete URL from environment
     const response = await httpsRequest(
       'POST',
-      '/wallets/external',
-      ZILS_API_BASE_URL,
+      ZILS_COLLECTIONS_URL,
       {},
       requestBody
     );
@@ -193,9 +209,9 @@ async function withdrawal(customerPhone, amount, customerUUID) {
       transactionId
     });
 
+    // ✅ FIXED: Use complete URL from environment
     const response = await httpsRequest(
       'POST',
-      '/wallets/external',
       ZILS_DISBURSEMENTS_URL,
       {},
       requestBody
@@ -250,10 +266,12 @@ async function checkTransactionStatus(transactionId) {
 
     logger.info('zils.checkStatus.start', { transactionId });
 
+    // ✅ Query on collections endpoint with transaction ID
+    const statusUrl = `${ZILS_COLLECTIONS_URL}/${transactionId}`;
+
     const response = await httpsRequest(
       'GET',
-      `/transactionstatus/${transactionId}`,
-      ZILS_API_BASE_URL,
+      statusUrl,
       {}
     );
 

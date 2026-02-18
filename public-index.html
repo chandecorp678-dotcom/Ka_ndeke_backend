@@ -122,8 +122,50 @@
       <div class="wallet-row">
         <button class="btn-secondary" onclick="deposit()">+ Deposit</button>
         <button class="btn-secondary" onclick="withdraw()">- Withdraw</button>
+        <button class="btn-secondary" onclick="openCheckStatus()">📊 Check Status</button>
       </div>
     </section>
+    <div class="modal" id="checkStatusModal">
+  <div class="modal-content">
+    <h3>📊 Check Deposit Status</h3>
+    
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">
+      Enter the Transaction ID (UUID) from your deposit confirmation message.
+    </p>
+    
+    <input 
+      id="statusTransactionId" 
+      type="text" 
+      placeholder="Enter Transaction ID (UUID)" 
+      style="margin-bottom:12px;"
+    />
+    
+    <div id="statusMessage" class="modal-message"></div>
+    
+    <div style="background:#071a2b;padding:15px;border-radius:8px;margin:15px 0;display:none;" id="statusDetails">
+      <p style="font-size:12px;color:var(--muted);margin:8px 0;">
+        <strong>Payment ID:</strong> <code id="detailPaymentId" style="color:var(--accent);font-size:11px;"></code>
+      </p>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0;">
+        <strong>Status:</strong> <span id="detailStatus" style="font-weight:bold;"></span>
+      </p>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0;">
+        <strong>Amount:</strong> <span id="detailAmount" style="font-weight:bold;color:var(--success);"></span>
+      </p>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0;">
+        <strong>Transaction Type:</strong> <span id="detailType" style="font-weight:bold;"></span>
+      </p>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0;">
+        <strong>Created:</strong> <span id="detailCreated" style="font-size:11px;"></span>
+      </p>
+    </div>
+    
+    <div class="modal-actions">
+      <button class="primary" onclick="checkTransactionStatus()">🔍 Check Status</button>
+      <button class="btn-secondary" onclick="hideModals()">Cancel</button>
+    </div>
+  </div>
+</div>
   </main>
 
   <div class="modal" id="loginModal">
@@ -297,6 +339,92 @@
     const registerBtn = document.getElementById('registerBtn');
     const logoutBtn = document.getElementById('logoutBtn');
 
+    // Open the check status modal
+function openCheckStatus() {
+  document.getElementById('statusTransactionId').value = '';
+  document.getElementById('statusMessage').textContent = '';
+  document.getElementById('statusMessage').className = 'modal-message';
+  document.getElementById('statusDetails').style.display = 'none';
+  document.getElementById('checkStatusModal').classList.add('show');
+}
+
+// Check transaction status
+async function checkTransactionStatus() {
+  const transactionId = document.getElementById('statusTransactionId').value.trim();
+  
+  if (!transactionId) {
+    showStatusMessage('Please enter a Transaction ID', true);
+    return;
+  }
+
+  try {
+    console.log('🔍 Checking transaction status:', transactionId);
+    showStatusMessage('Checking status...', false);
+
+    const response = await apiFetch(`/payments/status/${transactionId}`, { 
+      method: 'GET' 
+    }, true);
+
+    console.log('Status response:', response);
+
+    if (response.ok) {
+      // ✅ Success - Display details
+      displayStatusDetails(response);
+      
+      let statusColor = 'var(--warning)';
+      if (response.status === 'confirmed' || response.status === 'completed') {
+        statusColor = 'var(--success)';
+      } else if (response.status === 'failed') {
+        statusColor = 'var(--danger)';
+      }
+
+      showStatusMessage(
+        `✅ ${response.message}`, 
+        false
+      );
+
+    } else {
+      showStatusMessage('❌ ' + (response.message || 'Transaction not found'), true);
+    }
+  } catch (err) {
+    console.error('❌ Status check error:', err);
+    showStatusMessage('❌ Error: ' + err.message, true);
+  }
+}
+
+// Display transaction details
+function displayStatusDetails(response) {
+  const detailsDiv = document.getElementById('statusDetails');
+  
+  document.getElementById('detailPaymentId').textContent = response.transactionId || 'N/A';
+  document.getElementById('detailStatus').textContent = (response.status || 'Unknown').toUpperCase();
+  
+  // Color code the status
+  const statusSpan = document.getElementById('detailStatus');
+  if (response.status === 'confirmed' || response.status === 'completed') {
+    statusSpan.style.color = 'var(--success)';
+  } else if (response.status === 'pending') {
+    statusSpan.style.color = 'var(--warning)';
+  } else {
+    statusSpan.style.color = 'var(--danger)';
+  }
+  
+  document.getElementById('detailAmount').textContent = 'K ' + Number(response.amount || 0).toFixed(2);
+  document.getElementById('detailType').textContent = (response.type || 'deposit').toUpperCase();
+  
+  const createdDate = new Date(response.createdAt || Date.now()).toLocaleString();
+  document.getElementById('detailCreated').textContent = createdDate;
+  
+  detailsDiv.style.display = 'block';
+}
+
+// Show status message
+function showStatusMessage(message, isError) {
+  const el = document.getElementById('statusMessage');
+  el.textContent = message;
+  el.className = `modal-message ${isError ? 'error' : 'success'}`;
+}
+  
     function generateUUID() {
       return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         const r = Math.random() * 16 | 0;
@@ -370,6 +498,7 @@
       document.getElementById('tcModal').classList.remove('show');
       document.getElementById('gamingWarningModal').classList.remove('show');
       document.getElementById('adminModal').classList.remove('show');
+      document.getElementById('checkStatusModal').classList.remove('show'); 
     }
 
     function showMessage(modalId, message, isError) {

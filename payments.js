@@ -166,8 +166,14 @@ router.post('/deposit', express.json(), wrapAsync(async (req, res) => {
 
 /**
  * POST /api/payments/withdraw
- * User initiates a withdrawal via Zils Logistics
- * Body: { amount, transactionUUID }
+ * User initiates a withdrawal
+ * Flow:
+ * 1. Deduct from in-game balance
+ * 2. Create "processing" payment record
+ * 3. Call ZILS disbursement API
+ * 4. Poll ZILS for status
+ * 5. On confirmation → Keep balance deducted, mark as "confirmed"
+ * 6. On failure → Refund balance back to user
  */
 router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
   const db = req.app.locals.db;
@@ -176,18 +182,16 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
   let { amount, transactionUUID } = req.body || {};
   amount = Number(amount);
 
-  // ✅ NEW: Validate that UUID was provided
   if (!transactionUUID) {
     return sendError(res, 400, 'Transaction UUID required');
   }
 
-  // Validate amount
   if (isNaN(amount) || amount < WITHDRAWAL_MIN || amount > WITHDRAWAL_MAX) {
     return sendError(res, 400, `Withdrawal amount must be between K${WITHDRAWAL_MIN} and K${WITHDRAWAL_MAX}`);
   }
 
   try {
-    // ✅ FIX: Fetch fresh user data from DB to ensure zils_uuid is loaded
+    // ✅ FIX: Fetch fresh user data from DB
     const userRes = await db.query(
       `SELECT id, phone, zils_uuid, balance FROM users WHERE id = $1 FOR UPDATE`,
       [userId]
@@ -201,12 +205,11 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
     const userZilsUuid = userRes.rows[0].zils_uuid;
     const currentBalance = Number(userRes.rows[0].balance || 0);
 
-    // ✅ DEBUG: Log what we retrieved
     console.log('📤 /withdraw - Fresh user from DB:', {
       userId,
       userPhone,
       userZilsUuid,
-      transactionUUID,  // ← NEW: Log the transaction UUID
+      transactionUUID,
       balance: currentBalance,
       row: userRes.rows[0]
     });
@@ -243,16 +246,13 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
         throw err;
       }
 
-      // Deduct balance (optimistic: will refund if Zils fails)
+      // ✅ DEDUCT BALANCE IMMEDIATELY (pessimistic approach)
       await client.query(
         `UPDATE users SET balance = balance - $1, updated_at = NOW() WHERE id = $2`,
         [amount, userId]
       );
 
-      // ✅ NEW: Pass transactionUUID to Zils (instead of generating new one)
-      const zilsResponse = await zils.withdrawal(userPhone, amount, transactionUUID);
-
-      // Store payment record
+      // ✅ Create payment record as "processing"
       const paymentId = require('crypto').randomUUID();
       const now = new Date().toISOString();
 
@@ -265,8 +265,8 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
           'withdraw', 
           amount, 
           userPhone, 
-          zilsResponse.transactionId,
-          transactionUUID,  // ← NEW: Store the transaction UUID as external_id
+          userZilsUuid,  // Use userZilsUuid as transaction ID
+          transactionUUID,  // Store transaction UUID
           'processing',
           'PROCESSING',
           now, 
@@ -274,35 +274,62 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
         ]
       );
 
-      logger.info('payments.withdraw.initiated', { 
+      logger.info('payments.withdraw.balance_deducted', { 
         paymentId, 
         userId, 
         amount, 
-        phone: userPhone, 
-        zilsTransactionId: zilsResponse.transactionId,
-        transactionUUID  // ← NEW: Log the UUID
+        phone: userPhone
       });
 
       return { 
         paymentId, 
-        transactionId: zilsResponse.transactionId, 
+        transactionId: userZilsUuid,
         status: 'processing', 
         newBalance: currentBalance - amount,
         amount,
-        transactionUUID  // ← NEW: Return to frontend
+        transactionUUID,
+        userPhone,
+        userZilsUuid
       };
     });
 
+    logger.info('payments.withdraw.initiated', { 
+      paymentId: result.paymentId, 
+      userId, 
+      amount, 
+      phone: userPhone
+    });
+
+    // ✅ IMMEDIATELY CALL ZILS DISBURSEMENT API
+    // (Don't wait for response - start polling in background)
+    try {
+      const zilsDisb = await zils.withdrawal(result.userPhone, amount, result.transactionUUID);
+      logger.info('payments.withdraw.zils_called', { 
+        paymentId: result.paymentId,
+        zilsResponse: zilsDisb
+      });
+    } catch (err) {
+      logger.error('payments.withdraw.zils_call_failed', { 
+        paymentId: result.paymentId,
+        message: err.message
+      });
+      // Even if ZILS call fails, we continue - will retry via polling
+    }
+
+    // ✅ START POLLING ZILS IN BACKGROUND (don't await)
+    pollWithdrawalStatus(db, result.paymentId, result.userZilsUuid, userId, amount);
+
     return res.status(202).json({
       ok: true,
-      message: 'Withdrawal initiated. Money will arrive shortly.',
+      message: 'Withdrawal initiated. Processing with ZILS...',
       paymentId: result.paymentId,
       transactionId: result.transactionId,
-      transactionUUID: result.transactionUUID,  // ← NEW: Return UUID
+      transactionUUID: result.transactionUUID,
       amount,
       status: result.status,
       newBalance: result.newBalance
     });
+
   } catch (err) {
     if (err.status === 402) return sendError(res, err.status, err.message);
     if (err.status === 409) return sendError(res, err.status, err.message);
@@ -311,6 +338,117 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
     return sendError(res, 500, 'Failed to initiate withdrawal', err.message);
   }
 }));
+
+/**
+ * =================== WITHDRAWAL POLLING BACKGROUND JOB ===================
+ * Polls ZILS for withdrawal status and updates payment record when confirmed
+ * Runs async, doesn't block user response
+ */
+async function pollWithdrawalStatus(db, paymentId, zilsTransactionId, userId, amount) {
+  const MAX_POLLS = 60;  // Poll for max 5 minutes (60 × 5s)
+  const POLL_INTERVAL_MS = 5000;  // Poll every 5 seconds
+  
+  logger.info('payments.withdraw.polling.started', { 
+    paymentId, 
+    zilsTransactionId,
+    maxPolls: MAX_POLLS
+  });
+
+  for (let pollAttempt = 1; pollAttempt <= MAX_POLLS; pollAttempt++) {
+    try {
+      // Wait before polling
+      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+
+      logger.info('payments.withdraw.polling.attempt', { 
+        paymentId, 
+        attempt: pollAttempt,
+        maxAttempts: MAX_POLLS
+      });
+
+      // Check ZILS for transaction status
+      const statusCheck = await zils.checkTransactionStatus(zilsTransactionId);
+      const status = statusCheck.status.toLowerCase();
+
+      logger.info('payments.withdraw.polling.status_check', { 
+        paymentId, 
+        zlsStatus: status,
+        attempt: pollAttempt
+      });
+
+      // ✅ If CONFIRMED → Mark as confirmed
+      if (['confirmed', 'completed', 'success'].includes(status)) {
+        await db.query(
+          `UPDATE payments SET status = 'confirmed', mtn_status = $1, updated_at = NOW() WHERE id = $2`,
+          [status, paymentId]
+        );
+
+        logger.info('payments.withdraw.polling.confirmed', { 
+          paymentId, 
+          userId, 
+          amount,
+          attempt: pollAttempt
+        });
+        
+        return; // Done!
+      }
+
+      // ✅ If FAILED → Refund balance back to user
+      if (['failed', 'error', 'rejected'].includes(status)) {
+        await runTransaction(db, async (client) => {
+          // Mark payment as failed
+          await client.query(
+            `UPDATE payments SET status = 'failed', mtn_status = $1, updated_at = NOW() WHERE id = $2`,
+            [status, paymentId]
+          );
+
+          // Refund balance
+          await client.query(
+            `UPDATE users SET balance = balance + $1, updated_at = NOW() WHERE id = $2`,
+            [amount, userId]
+          );
+        });
+
+        logger.warn('payments.withdraw.polling.failed_refunded', { 
+          paymentId, 
+          userId, 
+          amount,
+          attempt: pollAttempt
+        });
+
+        return; // Done!
+      }
+
+      // If still pending, continue polling...
+      if (pollAttempt === MAX_POLLS) {
+        // Max polls reached - mark as expired
+        await db.query(
+          `UPDATE payments SET status = 'expired', mtn_status = 'TIMEOUT', updated_at = NOW() WHERE id = $1`,
+          [paymentId]
+        );
+
+        // Refund user (don't leave them hanging)
+        await db.query(
+          `UPDATE users SET balance = balance + $1, updated_at = NOW() WHERE id = $2`,
+          [amount, userId]
+        );
+
+        logger.warn('payments.withdraw.polling.timeout_refunded', { 
+          paymentId, 
+          userId, 
+          amount
+        });
+      }
+
+    } catch (err) {
+      logger.warn('payments.withdraw.polling.check_failed', { 
+        paymentId, 
+        attempt: pollAttempt,
+        message: err.message
+      });
+      // Continue polling on error
+    }
+  }
+}
 
 /**
  * GET /api/payments/status/:transactionId

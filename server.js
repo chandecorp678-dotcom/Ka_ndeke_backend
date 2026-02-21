@@ -336,6 +336,17 @@ try {
 } catch (err) {
   logger.warn('migration.payments_constraint.error', { message: err && err.message ? err.message : String(err), note: 'Constraint may already be fixed' });
 }
+
+// ============ FIX USERS TABLE COLUMN NAME ============
+logger.info('migration.users_updated_at.starting');
+try {
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+  `);
+  logger.info('migration.users_updated_at.added', { message: '✅ updated_at column added to users table' });
+} catch (err) {
+  logger.warn('migration.users_updated_at.error', { message: err && err.message ? err.message : String(err), note: 'Column may already exist' });
+}
 // ============ END MIGRATION ============
     
     // Phase 10: Initialize kill switch

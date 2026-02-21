@@ -173,8 +173,8 @@ router.post('/deposit', express.json(), wrapAsync(async (req, res) => {
  * User initiates a withdrawal
  * Flow:
  * 1. Deduct from in-game balance
- * 2. Create "processing" payment record
- * 3. Call ZILS disbursement API
+ * 2. Call ZILS disbursement API → Get real transaction ID
+ * 3. Create payment record with real transaction ID
  * 4. Poll ZILS for status
  * 5. On confirmation → Keep balance deducted, mark as "confirmed"
  * 6. On failure → Refund balance back to user
@@ -195,7 +195,7 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
   }
 
   try {
-    // ✅ FIX: Fetch fresh user data from DB
+    // ✅ Fetch fresh user data from DB
     const userRes = await db.query(
       `SELECT id, phone, zils_uuid, balance FROM users WHERE id = $1 FOR UPDATE`,
       [userId]
@@ -234,6 +234,43 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
       return sendError(res, 402, `Insufficient balance. You have K ${currentBalance.toFixed(2)}, but requested K ${amount.toFixed(2)}`);
     }
 
+    // ✅ STEP 1: Call ZILS FIRST to get real transaction ID
+    logger.info('payments.withdraw.calling_zils', {
+      userPhone,
+      amount,
+      userZilsUuid
+    });
+
+    let zilsTransactionId;
+    try {
+      const zilsResponse = await zils.withdrawal(userPhone, amount, userZilsUuid);
+      
+      if (!zilsResponse.ok) {
+        logger.error('payments.withdraw.zils_rejected', {
+          message: zilsResponse.error,
+          amount,
+          userPhone
+        });
+        return sendError(res, 400, `ZILS rejected: ${zilsResponse.error}`);
+      }
+
+      zilsTransactionId = zilsResponse.transactionId;
+      
+      logger.info('payments.withdraw.zils_success', {
+        zilsTransactionId,
+        amount,
+        userPhone
+      });
+    } catch (zilsErr) {
+      logger.error('payments.withdraw.zils_error', {
+        message: zilsErr.message,
+        amount,
+        userPhone
+      });
+      return sendError(res, 500, 'Failed to process withdrawal with ZILS', zilsErr.message);
+    }
+
+    // ✅ STEP 2: Deduct balance and create payment record
     const result = await runTransaction(db, async (client) => {
       // Check pending withdrawals
       const pendingWithdraw = await client.query(
@@ -250,13 +287,13 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
         throw err;
       }
 
-      // ✅ DEDUCT BALANCE IMMEDIATELY (pessimistic approach)
+      // Deduct balance immediately
       await client.query(
         `UPDATE users SET balance = balance - $1, updated_at = NOW() WHERE id = $2`,
         [amount, userId]
       );
 
-      // ✅ Create payment record as "processing"
+      // Create payment record with REAL ZILS TRANSACTION ID
       const paymentId = require('crypto').randomUUID();
       const now = new Date().toISOString();
 
@@ -269,8 +306,8 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
           'withdraw', 
           amount, 
           userPhone, 
-          userZilsUuid,  // Use userZilsUuid as transaction ID
-          transactionUUID,  // Store transaction UUID
+          zilsTransactionId,  // ✅ REAL transaction ID from ZILS
+          transactionUUID,    // Frontend's transaction UUID
           'processing',
           'PROCESSING',
           now, 
@@ -278,22 +315,22 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
         ]
       );
 
-      logger.info('payments.withdraw.balance_deducted', { 
+      logger.info('payments.withdraw.balance_deducted_and_recorded', { 
         paymentId, 
         userId, 
         amount, 
-        phone: userPhone
+        phone: userPhone,
+        zilsTransactionId
       });
 
       return { 
         paymentId, 
-        transactionId: userZilsUuid,
+        zilsTransactionId,
         status: 'processing', 
         newBalance: currentBalance - amount,
         amount,
         transactionUUID,
-        userPhone,
-        userZilsUuid
+        userPhone
       };
     });
 
@@ -301,33 +338,17 @@ router.post('/withdraw', express.json(), wrapAsync(async (req, res) => {
       paymentId: result.paymentId, 
       userId, 
       amount, 
-      phone: userPhone
+      zilsTransactionId: result.zilsTransactionId
     });
 
-    // ✅ IMMEDIATELY CALL ZILS DISBURSEMENT API
-    // (Don't wait for response - start polling in background)
-    try {
-      const zilsDisb = await zils.withdrawal(result.userPhone, amount, result.transactionUUID);
-      logger.info('payments.withdraw.zils_called', { 
-        paymentId: result.paymentId,
-        zilsResponse: zilsDisb
-      });
-    } catch (err) {
-      logger.error('payments.withdraw.zils_call_failed', { 
-        paymentId: result.paymentId,
-        message: err.message
-      });
-      // Even if ZILS call fails, we continue - will retry via polling
-    }
-
-    // ✅ START POLLING ZILS IN BACKGROUND (don't await)
-    pollWithdrawalStatus(db, result.paymentId, result.userZilsUuid, userId, amount);
+    // ✅ STEP 3: START POLLING ZILS IN BACKGROUND (with real transaction ID)
+    pollWithdrawalStatus(db, result.paymentId, result.zilsTransactionId, userId, amount);
 
     return res.status(202).json({
       ok: true,
       message: 'Withdrawal initiated. Processing with ZILS...',
       paymentId: result.paymentId,
-      transactionId: result.transactionId,
+      transactionId: result.zilsTransactionId,
       transactionUUID: result.transactionUUID,
       amount,
       status: result.status,

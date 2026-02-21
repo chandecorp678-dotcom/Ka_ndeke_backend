@@ -270,32 +270,43 @@ async function checkTransactionStatus(transactionId) {
 
     logger.info('zils.checkStatus.start', { transactionId });
 
-    // ✅ Query on collections endpoint with transaction ID
-    const statusUrl = `${ZILS_COLLECTIONS_URL}/${transactionId}`;
+    // ✅ CORRECT ENDPOINT (as confirmed by ZILS)
+    const statusUrl = `https://collections.zilslogistics.com/api/v1/transactionstatus/${transactionId}`;
 
     const requestBody = {
-      token: ZILS_API_TOKEN  // ← NEW: Token in body for status check
+      token: ZILS_API_TOKEN
     };
+
+    console.log('📡 Checking ZILS status at:', statusUrl);
 
     const response = await httpsRequest(
       'GET',
       statusUrl,
       {},
-      requestBody  // ← Include token in body
+      requestBody
     );
+
+    console.log('ZILS Response Status:', response.status);
+    console.log('ZILS Response Body:', JSON.stringify(response.body, null, 2));
 
     if (response.status >= 200 && response.status < 300) {
       const body = response.body;
       
+      // ZILS returns nested structure: { message: { status: "PENDING", ... } }
+      const transactionData = body.message || body;
+      const status = (transactionData.status || 'unknown').toUpperCase();
+      
       logger.info('zils.checkStatus.success', { 
         transactionId, 
-        status: body.status || body.statusCode 
+        status: status,
+        financialTransactionId: transactionData.financialTransactionId,
+        externalId: transactionData.externalId
       });
 
       return {
         transactionId,
-        status: (body.status || body.statusCode || 'unknown').toUpperCase(),
-        details: body,
+        status: status,
+        details: transactionData,
         timestamp: new Date().toISOString()
       };
     } else {

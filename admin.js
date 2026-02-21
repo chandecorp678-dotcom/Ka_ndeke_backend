@@ -3,7 +3,7 @@
 const express = require("express");
 const router = express.Router();
 const logger = require("./logger");
-const { sendError } = require("./apiResponses");
+const { sendError, wrapAsync } = require("./apiResponses");
 const { runTransaction } = require("./dbHelper");
 const metrics = require("./metrics");
 

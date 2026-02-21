@@ -179,13 +179,13 @@ async function deposit(customerPhone, amount, transactionUUID) {
  * 
  * @param {string} customerPhone - Customer's phone number (e.g., "0768031801")
  * @param {number} amount - Amount to withdraw (e.g., 100 for K100)
- * @param {string} transactionUUID - Transaction UUID
+ * @param {string} userZilsUuid - User's ZILS UUID (account ID, e.g., "60016cb9-5e49-4ab1-b16d-c35920e0e477")
  * @returns {object} { transactionId, status, amount }
  */
-async function withdrawal(customerPhone, amount, transactionUUID) {
+async function withdrawal(customerPhone, amount, userZilsUuid) {
   try {
-    if (!customerPhone || !amount || !transactionUUID) {
-      throw new Error('Missing required parameters: customerPhone, amount, transactionUUID');
+    if (!customerPhone || !amount || !userZilsUuid) {
+      throw new Error('Missing required parameters: customerPhone, amount, userZilsUuid');
     }
 
     const numAmount = Number(amount);
@@ -196,22 +196,23 @@ async function withdrawal(customerPhone, amount, transactionUUID) {
     // Normalize phone
     const normalizedPhone = String(customerPhone).replace('+', '').trim();
 
-    // ✅ NEW DISBURSEMENT API PAYLOAD (per your ZILS spec)
+    // ✅ CORRECT DISBURSEMENT API PAYLOAD (per ZILS spec)
+    // uuid = user's ZILS account UUID (NOT transaction UUID)
     const requestBody = {
       receiver: normalizedPhone,     // Customer phone
-      amount: numAmount,             // K amount
-      uuid: transactionUUID,         // Unique transaction ID
+      amount: String(numAmount),     // Amount as string
+      uuid: userZilsUuid,            // ✅ User's ZILS UUID (account ID)
       token: ZILS_API_TOKEN          // Your API token
     };
 
     logger.info('zils.withdrawal.start', { 
       customerPhone: normalizedPhone, 
       amount: numAmount, 
-      transactionUUID,
+      userZilsUuid,
       endpoint: 'https://disbursements.zilslogistics.com/api/v1/wallets/external'
     });
 
-    // ✅ Call NEW disbursement endpoint
+    // ✅ Call disbursement endpoint
     const response = await httpsRequest(
       'POST',
       'https://disbursements.zilslogistics.com/api/v1/wallets/external',
@@ -221,15 +222,16 @@ async function withdrawal(customerPhone, amount, transactionUUID) {
 
     if (response.status >= 200 && response.status < 300) {
       logger.info('zils.withdrawal.success', { 
-        transactionUUID, 
+        userZilsUuid, 
         customerPhone: normalizedPhone, 
         amount: numAmount,
         responseBody: response.body
       });
       
       return {
-        transactionId: response.body.txnId || transactionUUID,
-        status: 'pending',  // ZILS will confirm via callback/polling
+        ok: true,
+        transactionId: response.body.txnId || response.body.transaction_id || response.body.id || userZilsUuid,
+        status: response.body.status || 'PENDING',
         amount: numAmount,
         customerPhone: normalizedPhone,
         createdAt: new Date().toISOString(),
@@ -240,18 +242,28 @@ async function withdrawal(customerPhone, amount, transactionUUID) {
         status: response.status, 
         body: response.body, 
         customerPhone: normalizedPhone,
-        transactionUUID
+        userZilsUuid
       });
-      throw new Error(`ZILS API error: ${response.status} - ${JSON.stringify(response.body)}`);
+      
+      return {
+        ok: false,
+        error: response.body?.message || `ZILS API error: ${response.status}`,
+        status: response.status,
+        body: response.body
+      };
     }
   } catch (err) {
     logger.error('zils.withdrawal.error', { 
       message: err.message, 
       customerPhone,
       amount,
-      transactionUUID
+      userZilsUuid
     });
-    throw err;
+    
+    return {
+      ok: false,
+      error: err.message
+    };
   }
 }
 
